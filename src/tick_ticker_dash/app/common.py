@@ -88,6 +88,17 @@ def default_sql_for_source(source_id: str) -> str:
     return source["metadata"].get("default_query", "")
 
 
+def build_table_sql(table_name: str, limit: int = 200, where_clause: str = "") -> str:
+    table_ref = quote_sql_identifier(table_name)
+    if where_clause:
+        return f"SELECT * FROM {table_ref} WHERE {where_clause} LIMIT {limit}"
+    return f"SELECT * FROM {table_ref} LIMIT {limit}"
+
+
+def quote_sql_identifier(identifier: str) -> str:
+    return f'"{identifier.replace('"', '""')}"'
+
+
 def render_empty_state(message: str) -> None:
     st.markdown(f"<div class='empty-state'>{message}</div>", unsafe_allow_html=True)
 

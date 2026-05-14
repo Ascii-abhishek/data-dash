@@ -195,6 +195,10 @@ def list_dashboard_cards() -> list[dict[str, Any]]:
     return _dashboard_state()["cards"]
 
 
+def get_dashboard_card(card_id: str) -> dict[str, Any] | None:
+    return next((card for card in list_dashboard_cards() if card["id"] == card_id), None)
+
+
 def list_dashboard_names() -> list[str]:
     names = {dashboard["name"] for dashboard in list_dashboards()}
     names.update(card.get("dashboard_name") or "Default" for card in list_dashboard_cards())
@@ -216,6 +220,25 @@ def save_dashboard_card(card: dict[str, Any]) -> dict[str, Any]:
     state["cards"].append(card)
     write_dashboard_state(state)
     return card
+
+
+def update_dashboard_card(card_id: str, updates: dict[str, Any]) -> dict[str, Any]:
+    dashboard_name = updates.get("dashboard_name") or "Default"
+    save_dashboard(dashboard_name)
+    state = _dashboard_state()
+    card = next((item for item in state["cards"] if item["id"] == card_id), None)
+    if not card:
+        raise ValueError(f"Dashboard card not found: {card_id}")
+    dashboard_name = updates.get("dashboard_name") or card.get("dashboard_name") or "Default"
+    card.update({**updates, "dashboard_name": dashboard_name, "updated_at": utc_now()})
+    write_dashboard_state(state)
+    return card
+
+
+def delete_dashboard_card(card_id: str) -> None:
+    state = _dashboard_state()
+    state["cards"] = [card for card in state["cards"] if card["id"] != card_id]
+    write_dashboard_state(state)
 
 
 def list_saved_views() -> list[dict[str, Any]]:

@@ -7,6 +7,7 @@ import streamlit as st
 from tick_ticker_dash.app.common import (
     cached_preview,
     cached_sql,
+    build_table_sql,
     clear_data_cache,
     default_sql_for_source,
     render_cache_status,
@@ -128,7 +129,7 @@ def render_d1_source_browser(source: dict[str, Any]) -> None:
     where_clause = st.text_input("WHERE condition", placeholder="e.g. name = 'Dev' and created_at > '2024-01-01'")
     auto_refresh = st.checkbox("Enable auto refresh", value=False)
 
-    sql = _build_table_sql(selected_table, int(limit), where_clause.strip())
+    sql = build_table_sql(selected_table, int(limit), where_clause.strip())
     st.code(sql, language="sql")
     render_d1_table_preview(source, sql, auto_refresh, int(refresh_seconds))
 
@@ -152,17 +153,6 @@ def _render_sql_preview_body(source: dict[str, Any], sql: str, refresh_seconds: 
         render_dataframe(df, key_prefix)
     except Exception as exc:
         st.error(str(exc))
-
-
-def _quote_sql_identifier(identifier: str) -> str:
-    return f'"{identifier.replace('"', '""')}"'
-
-
-def _build_table_sql(table_name: str, limit: int, where_clause: str = "") -> str:
-    table_ref = _quote_sql_identifier(table_name)
-    if where_clause:
-        return f"SELECT * FROM {table_ref} WHERE {where_clause} LIMIT {limit}"
-    return f"SELECT * FROM {table_ref} LIMIT {limit}"
 
 
 def render_view_index(views: list[dict[str, Any]]) -> None:

@@ -49,7 +49,13 @@ def select_column(
     return value or None
 
 
-def render_chart_config_controls(card_type: str, columns: list[str], key_prefix: str) -> dict[str, Any]:
+def render_chart_config_controls(
+    card_type: str,
+    columns: list[str],
+    key_prefix: str,
+    current_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    current_config = current_config or {}
     if card_type == "table" or not columns:
         return {}
 
@@ -57,27 +63,29 @@ def render_chart_config_controls(card_type: str, columns: list[str], key_prefix:
     if card_type in NATIVE_CHART_TYPES:
         left, middle, right = st.columns(3)
         with left:
-            x = select_column("X axis", columns, f"{key_prefix}_x")
+            x = select_column("X axis", columns, f"{key_prefix}_x", current_config.get("x"))
         with middle:
-            y = select_column("Y axis", columns, f"{key_prefix}_y")
+            y = select_column("Y axis", columns, f"{key_prefix}_y", current_config.get("y"))
         with right:
-            color = select_column("Color field", columns, f"{key_prefix}_color")
+            color = select_column("Color field", columns, f"{key_prefix}_color", current_config.get("color"))
         config = {"x": x, "y": y, "color": color}
         if card_type == "scatter":
-            config["size"] = left.selectbox("Size field", [""] + columns, key=f"{key_prefix}_size") or None
+            size_options = [""] + columns
+            size_index = size_options.index(current_config.get("size")) if current_config.get("size") in size_options else 0
+            config["size"] = left.selectbox("Size field", size_options, index=size_index, key=f"{key_prefix}_size") or None
         return {key: value for key, value in config.items() if value}
 
     if card_type == "candle":
         defaults = _matching_defaults(columns, {"x": ("time", "date", "timestamp"), "open": ("open",), "high": ("high",), "low": ("low",), "close": ("close",)})
         c1, c2 = st.columns(2)
         with c1:
-            x = select_column("X axis", columns, f"{key_prefix}_x", defaults.get("x"), required=True)
-            open_column = select_column("Open", columns, f"{key_prefix}_open", defaults.get("open"), required=True)
-            high_column = select_column("High", columns, f"{key_prefix}_high", defaults.get("high"), required=True)
+            x = select_column("X axis", columns, f"{key_prefix}_x", current_config.get("x") or defaults.get("x"), required=True)
+            open_column = select_column("Open", columns, f"{key_prefix}_open", current_config.get("open") or defaults.get("open"), required=True)
+            high_column = select_column("High", columns, f"{key_prefix}_high", current_config.get("high") or defaults.get("high"), required=True)
         with c2:
-            low_column = select_column("Low", columns, f"{key_prefix}_low", defaults.get("low"), required=True)
-            close_column = select_column("Close", columns, f"{key_prefix}_close", defaults.get("close"), required=True)
-            tooltip = select_column("Tooltip field", columns, f"{key_prefix}_tooltip")
+            low_column = select_column("Low", columns, f"{key_prefix}_low", current_config.get("low") or defaults.get("low"), required=True)
+            close_column = select_column("Close", columns, f"{key_prefix}_close", current_config.get("close") or defaults.get("close"), required=True)
+            tooltip = select_column("Tooltip field", columns, f"{key_prefix}_tooltip", current_config.get("tooltip"))
         return {
             "x": x,
             "open": open_column,
@@ -90,19 +98,19 @@ def render_chart_config_controls(card_type: str, columns: list[str], key_prefix:
     if card_type == "histogram":
         left, middle, right = st.columns(3)
         with left:
-            x = select_column("Value field", columns, f"{key_prefix}_x", required=True)
+            x = select_column("Value field", columns, f"{key_prefix}_x", current_config.get("x"), required=True)
         with middle:
-            color = select_column("Color field", columns, f"{key_prefix}_color")
+            color = select_column("Color field", columns, f"{key_prefix}_color", current_config.get("color"))
         with right:
-            bins = st.number_input("Bins", min_value=5, max_value=100, value=30, step=5, key=f"{key_prefix}_bins")
+            bins = st.number_input("Bins", min_value=5, max_value=100, value=int(current_config.get("bins") or 30), step=5, key=f"{key_prefix}_bins")
         return {"x": x, "color": color, "bins": int(bins)}
 
     if card_type == "pie":
         left, right = st.columns(2)
         with left:
-            theta = select_column("Value field", columns, f"{key_prefix}_theta", required=True)
+            theta = select_column("Value field", columns, f"{key_prefix}_theta", current_config.get("theta"), required=True)
         with right:
-            color = select_column("Category/color field", columns, f"{key_prefix}_color", required=True)
+            color = select_column("Category/color field", columns, f"{key_prefix}_color", current_config.get("color"), required=True)
         return {"theta": theta, "color": color}
 
     return {}
@@ -184,9 +192,10 @@ def _candlestick_chart(data: Any, config: dict[str, Any]) -> alt.Chart:
         ),
         tooltip=tooltip,
     )
-    rule = base.mark_rule().encode(y=alt.Y(f"{low_column}:Q", title="Price"), y2=f"{high_column}:Q")
+    y_scale = alt.Scale(zero=False, nice=False)
+    rule = base.mark_rule().encode(y=alt.Y(f"{low_column}:Q", title="Price", scale=y_scale), y2=f"{high_column}:Q")
     bar = base.mark_bar(size=8).encode(y=f"{open_column}:Q", y2=f"{close_column}:Q")
-    return (rule + bar).properties(height=360)
+    return (rule + bar).properties(height=360).interactive(bind_y=True)
 
 
 def _histogram_chart(data: Any, config: dict[str, Any]) -> alt.Chart:

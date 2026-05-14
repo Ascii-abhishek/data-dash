@@ -9,6 +9,7 @@ from tick_ticker_dash.app.dialogs import render_create_dashboard_dialog, render_
 from tick_ticker_dash.app.graphs import render_result
 from tick_ticker_dash.app.styles import action_link, page_title
 from tick_ticker_dash.storage.local_store import (
+    delete_dashboard_card,
     get_source,
     is_favorite,
     list_dashboard_cards,
@@ -52,7 +53,26 @@ def render_dashboard_page() -> None:
         columns = st.columns(2)
         for column, card in zip(columns, dashboard_cards[row_start : row_start + 2], strict=False):
             with column.container(border=True):
-                st.markdown(f"#### {card['name']}")
+                header = st.columns([0.7, 0.15, 0.15], vertical_alignment="center")
+                header[0].markdown(f"#### {card['name']}")
+                if header[1].button(
+                    "",
+                    key=f"edit_card_{card['id']}",
+                    icon=":material/edit:",
+                    help=f"Edit {card['name']}",
+                    use_container_width=True,
+                ):
+                    render_dashboard_dialog(selected_name, card["id"])
+                if header[2].button(
+                    "",
+                    key=f"delete_card_{card['id']}",
+                    icon=":material/delete:",
+                    help=f"Delete {card['name']}",
+                    use_container_width=True,
+                ):
+                    delete_dashboard_card(card["id"])
+                    clear_data_cache()
+                    st.rerun()
                 render_dashboard_card(card, auto_refresh, refresh_seconds)
 
 

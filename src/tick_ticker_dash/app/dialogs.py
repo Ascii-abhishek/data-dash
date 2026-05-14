@@ -5,6 +5,7 @@ from typing import Any
 import streamlit as st
 
 from tick_ticker_dash.app.common import (
+    build_table_sql,
     clear_data_cache,
     default_sql_for_source,
     render_field,
@@ -20,9 +21,10 @@ from tick_ticker_dash.app.graphs import (
 from tick_ticker_dash.app.styles import material_icon
 from tick_ticker_dash.config.source_schemas import SOURCE_TYPES, source_type_options
 from tick_ticker_dash.connections import r2
-from tick_ticker_dash.connections.registry import execute_source_sql, test_source_connection
+from tick_ticker_dash.connections.registry import execute_source_sql, list_source_tables, test_source_connection
 from tick_ticker_dash.storage.local_store import (
     delete_source,
+    get_dashboard_card,
     get_source,
     list_dashboard_names,
     list_sources,
@@ -30,6 +32,7 @@ from tick_ticker_dash.storage.local_store import (
     save_dashboard,
     save_dashboard_card,
     save_source,
+    update_dashboard_card,
     update_source,
 )
 
@@ -143,16 +146,20 @@ def render_create_dashboard_dialog() -> None:
         st.rerun()
 
 
-@st.dialog("Add dashboard card")
-def render_dashboard_dialog(dashboard_name: str | None = None) -> None:
+@st.dialog("Dashboard card")
+def render_dashboard_dialog(dashboard_name: str | None = None, card_id: str | None = None) -> None:
     sources = list_sources()
     if not sources:
         st.info("Add a data source first.")
         return
 
+    existing = get_dashboard_card(card_id) if card_id else None
     dashboard_names = list_dashboard_names()
     locked_dashboard = dashboard_name or st.session_state.get("selected_dashboard_name")
-    st.markdown(f"### {material_icon('add_chart')} Add card", unsafe_allow_html=True)
+    if not locked_dashboard and existing:
+        locked_dashboard = existing.get("dashboard_name")
+    dialog_mode = "Edit" if existing else "Add"
+    st.markdown(f"### {material_icon('add_chart')} {dialog_mode} card", unsafe_allow_html=True)
 
     dashboard_choice = locked_dashboard or st.selectbox("Dashboard", ["Create new"] + dashboard_names)
     new_dashboard_name = ""
@@ -161,13 +168,41 @@ def render_dashboard_dialog(dashboard_name: str | None = None) -> None:
     elif dashboard_choice == "Create new":
         new_dashboard_name = st.text_input("Dashboard name", placeholder="Market overview")
 
-    name = st.text_input("Card name", placeholder="Latest options rows")
-    card_type = st.selectbox("Card type", chart_type_options(), format_func=chart_type_label)
-    source_id = st.selectbox("Data source", [source["id"] for source in sources], format_func=source_name)
-    sql = st.text_area("SQL query", value=default_sql_for_source(source_id), height=140)
+    name = st.text_input("Card name", value=existing.get("name", "") if existing else "", placeholder="Latest options rows")
+    type_options = chart_type_options()
+    existing_type = existing.get("type", "table") if existing else "table"
+    card_type = st.selectbox(
+        "Card type",
+        type_options,
+        index=type_options.index(existing_type) if existing_type in type_options else 0,
+        format_func=chart_type_label,
+    )
+    source_ids = [source["id"] for source in sources]
+    existing_source_id = existing.get("source_id") if existing else None
+    source_id = st.selectbox(
+        "Data source",
+        source_ids,
+        index=source_ids.index(existing_source_id) if existing_source_id in source_ids else 0,
+        format_func=source_name,
+    )
+    source = get_source(source_id)
 
-    columns_key = "dashboard_card_columns"
-    error_key = "dashboard_card_field_error"
+    key_prefix = f"dashboard_card_{card_id or 'new'}"
+    sql_key = f"{key_prefix}_sql"
+    source_key = f"{key_prefix}_sql_source_id"
+    if st.session_state.get(source_key) != source_id:
+        st.session_state[source_key] = source_id
+        st.session_state[sql_key] = existing.get("sql") if existing and existing.get("source_id") == source_id else default_sql_for_source(source_id)
+        st.session_state.pop(f"{key_prefix}_columns", None)
+        st.session_state.pop(f"{key_prefix}_field_error", None)
+
+    if source and source["type"] == "cloudflare_d1":
+        render_d1_card_table_picker(source, sql_key, key_prefix)
+
+    sql = st.text_area("SQL query", key=sql_key, height=140)
+
+    columns_key = f"{key_prefix}_columns"
+    error_key = f"{key_prefix}_field_error"
     if st.button("Load fields", icon=":material/view_column:", use_container_width=True):
         source = get_source(source_id)
         if not source:
@@ -189,12 +224,20 @@ def render_dashboard_dialog(dashboard_name: str | None = None) -> None:
 
     loaded = st.session_state.get(columns_key, {})
     columns = loaded.get("columns", []) if loaded.get("source_id") == source_id and loaded.get("sql") == sql else []
+    current_config = existing.get("chart_config", {}) if existing else {}
     if card_type != "table" and not columns:
-        st.caption("Load fields to configure axes, color, and custom chart columns.")
+        if existing and current_config and existing.get("source_id") == source_id and existing.get("sql") == sql:
+            st.caption("Load fields to change chart fields. Existing chart fields will be kept if you save now.")
+        else:
+            st.caption("Load fields to configure axes, color, and custom chart columns.")
 
-    chart_config = render_chart_config_controls(card_type, columns, "new_dashboard_card")
+    chart_config = (
+        render_chart_config_controls(card_type, columns, key_prefix, current_config)
+        if columns
+        else current_config
+    )
     left, right = st.columns(2)
-    submitted = left.button("Add", icon=":material/add_chart:", use_container_width=True)
+    submitted = left.button(dialog_mode, icon=":material/add_chart:", use_container_width=True)
     cancelled = right.button("Cancel", icon=":material/close:", use_container_width=True)
 
     if cancelled:
@@ -209,16 +252,18 @@ def render_dashboard_dialog(dashboard_name: str | None = None) -> None:
         if missing:
             st.error(f"Missing chart fields: {', '.join(missing)}")
             return
-        save_dashboard_card(
-            {
-                "dashboard_name": selected_dashboard_name,
-                "name": name,
-                "type": card_type,
-                "chart_config": _clean_config(chart_config),
-                "source_id": source_id,
-                "sql": sql,
-            }
-        )
+        payload = {
+            "dashboard_name": selected_dashboard_name,
+            "name": name,
+            "type": card_type,
+            "chart_config": _clean_config(chart_config),
+            "source_id": source_id,
+            "sql": sql,
+        }
+        if existing:
+            update_dashboard_card(existing["id"], payload)
+        else:
+            save_dashboard_card(payload)
         st.session_state["selected_dashboard_name"] = selected_dashboard_name
         st.session_state.pop(columns_key, None)
         st.session_state.pop(error_key, None)
@@ -228,3 +273,30 @@ def render_dashboard_dialog(dashboard_name: str | None = None) -> None:
 
 def _clean_config(config: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in config.items() if value not in ("", None)}
+
+
+def render_d1_card_table_picker(source: dict[str, Any], sql_key: str, key_prefix: str) -> None:
+    tables_key = f"{key_prefix}_d1_tables_{source['id']}"
+    error_key = f"{key_prefix}_d1_tables_error_{source['id']}"
+
+    if st.button("Load D1 tables", icon=":material/table_rows:", use_container_width=True):
+        try:
+            st.session_state[tables_key] = list_source_tables(source)
+            st.session_state.pop(error_key, None)
+        except Exception as exc:
+            st.session_state[error_key] = str(exc)
+
+    if st.session_state.get(error_key):
+        st.error(st.session_state[error_key])
+
+    tables = st.session_state.get(tables_key, [])
+    if not tables:
+        st.caption("Load D1 tables to generate a table query for this card.")
+        return
+
+    selected_table = st.selectbox("D1 table", tables, key=f"{key_prefix}_d1_table_{source['id']}")
+    if st.button("Use selected table query", icon=":material/bolt:", use_container_width=True):
+        st.session_state[sql_key] = build_table_sql(selected_table, 200)
+        st.session_state.pop(f"{key_prefix}_columns", None)
+        st.session_state.pop(f"{key_prefix}_field_error", None)
+        st.rerun()
