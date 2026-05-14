@@ -1,0 +1,23 @@
+[project]
+name = "tick-ticker-dash"
+version = "0.1.0"
+description = "A lightweight Streamlit BI dashboard for market data sources."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.27",
+    "polars>=1.0",
+    "pydantic-settings>=2.4",
+    "s3fs>=2024.6.0",
+    "streamlit>=1.37",
+]
+
+[project.scripts]
+tick-ticker-dash = "tick_ticker_dash.app:main"
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tick_ticker_dash"]

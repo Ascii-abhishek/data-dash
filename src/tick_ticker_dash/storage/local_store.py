@@ -1,0 +1,306 @@
+from __future__ import annotations
+
+import json
+import re
+import uuid
+from datetime import UTC, datetime
+from typing import Any
+
+from tick_ticker_dash.config.settings import settings
+
+SOURCES_FILE = settings.connections_dir / "sources.json"
+UI_STATE_DIR = settings.ui_dir
+DASHBOARDS_FILE = UI_STATE_DIR / "dashboards.json"
+VIEWS_FILE = UI_STATE_DIR / "views.json"
+
+
+def ensure_storage() -> None:
+    settings.connections_dir.mkdir(parents=True, exist_ok=True)
+    settings.credentials_dir.mkdir(parents=True, exist_ok=True)
+    UI_STATE_DIR.mkdir(parents=True, exist_ok=True)
+    if not SOURCES_FILE.exists():
+        write_json(SOURCES_FILE, [])
+    if not DASHBOARDS_FILE.exists():
+        write_json(DASHBOARDS_FILE, [])
+    if not VIEWS_FILE.exists():
+        write_json(VIEWS_FILE, [])
+
+
+def read_json(path: Path, default: Any) -> Any:
+    if not path.exists():
+        return default
+    try:
+        return json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return default
+
+
+def write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+
+
+def make_id(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    slug = slug or "source"
+    return f"{slug}-{uuid.uuid4().hex[:8]}"
+
+
+def utc_now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def list_sources() -> list[dict[str, Any]]:
+    ensure_storage()
+    return read_json(SOURCES_FILE, [])
+
+
+def get_source(source_id: str) -> dict[str, Any] | None:
+    return next((source for source in list_sources() if source["id"] == source_id), None)
+
+
+def save_source(name: str, source_type: str, metadata: dict[str, Any], credentials: dict[str, Any]) -> dict[str, Any]:
+    ensure_storage()
+    source_id = make_id(name)
+    source = {
+        "id": source_id,
+        "name": name,
+        "type": source_type,
+        "metadata": metadata,
+        "credential_file": f"{source_id}.json",
+        "created_at": utc_now(),
+        "updated_at": utc_now(),
+    }
+    sources = list_sources()
+    sources.append(source)
+    write_json(SOURCES_FILE, sources)
+    write_json(settings.credentials_dir / source["credential_file"], credentials)
+    return source
+
+
+def update_source(
+    source_id: str,
+    name: str,
+    source_type: str,
+    metadata: dict[str, Any],
+    credentials: dict[str, Any],
+) -> dict[str, Any]:
+    ensure_storage()
+    sources = list_sources()
+    source = next((item for item in sources if item["id"] == source_id), None)
+    if not source:
+        raise ValueError(f"Source not found: {source_id}")
+
+    source.update(
+        {
+            "name": name,
+            "type": source_type,
+            "metadata": metadata,
+            "updated_at": utc_now(),
+        }
+    )
+    source.setdefault("credential_file", f"{source_id}.json")
+    write_json(SOURCES_FILE, sources)
+    write_json(settings.credentials_dir / source["credential_file"], credentials)
+    return source
+
+
+def delete_source(source_id: str) -> None:
+    ensure_storage()
+    sources = list_sources()
+    source = next((item for item in sources if item["id"] == source_id), None)
+    write_json(SOURCES_FILE, [item for item in sources if item["id"] != source_id])
+
+    if source and source.get("credential_file"):
+        credential_path = settings.credentials_dir / source["credential_file"]
+        if credential_path.exists():
+            credential_path.unlink()
+
+    views = [view for view in list_saved_views() if view.get("source_id") != source_id]
+    write_json(VIEWS_FILE, views)
+
+    state = _dashboard_state()
+    state["cards"] = [card for card in state["cards"] if card.get("source_id") != source_id]
+    write_dashboard_state(state)
+
+
+def read_credentials(source: dict[str, Any]) -> dict[str, Any]:
+    return read_json(settings.credentials_dir / source["credential_file"], {})
+
+
+def _dashboard_state() -> dict[str, list[dict[str, Any]]]:
+    ensure_storage()
+    state = read_json(DASHBOARDS_FILE, [])
+    if isinstance(state, list):
+        dashboards = []
+        seen = set()
+        for card in state:
+            dashboard_name = card.get("dashboard_name") or "Default"
+            if dashboard_name not in seen:
+                dashboards.append(
+                    {
+                        "id": make_id(dashboard_name),
+                        "name": dashboard_name,
+                        "created_at": card.get("created_at") or utc_now(),
+                        "updated_at": card.get("updated_at") or utc_now(),
+                    }
+                )
+                seen.add(dashboard_name)
+            card["dashboard_name"] = dashboard_name
+        migrated = {"dashboards": dashboards, "cards": state}
+        write_json(DASHBOARDS_FILE, migrated)
+        return migrated
+    return {
+        "dashboards": state.get("dashboards", []),
+        "cards": state.get("cards", []),
+    }
+
+
+def write_dashboard_state(state: dict[str, list[dict[str, Any]]]) -> None:
+    write_json(DASHBOARDS_FILE, state)
+
+
+def list_dashboards() -> list[dict[str, Any]]:
+    return _dashboard_state()["dashboards"]
+
+
+def save_dashboard(name: str) -> dict[str, Any]:
+    state = _dashboard_state()
+    existing = next((dashboard for dashboard in state["dashboards"] if dashboard["name"] == name), None)
+    if existing:
+        return existing
+    dashboard = {
+        "id": make_id(name),
+        "name": name,
+        "created_at": utc_now(),
+        "updated_at": utc_now(),
+    }
+    state["dashboards"].append(dashboard)
+    write_dashboard_state(state)
+    return dashboard
+
+
+def delete_dashboard(dashboard_id: str) -> None:
+    state = _dashboard_state()
+    dashboard = next((item for item in state["dashboards"] if item["id"] == dashboard_id), None)
+    if not dashboard:
+        return
+    dashboard_name = dashboard["name"]
+    state["dashboards"] = [item for item in state["dashboards"] if item["id"] != dashboard_id]
+    state["cards"] = [card for card in state["cards"] if (card.get("dashboard_name") or "Default") != dashboard_name]
+    write_dashboard_state(state)
+
+
+def list_dashboard_cards() -> list[dict[str, Any]]:
+    return _dashboard_state()["cards"]
+
+
+def list_dashboard_names() -> list[str]:
+    names = {dashboard["name"] for dashboard in list_dashboards()}
+    names.update(card.get("dashboard_name") or "Default" for card in list_dashboard_cards())
+    return sorted(names)
+
+
+def save_dashboard_card(card: dict[str, Any]) -> dict[str, Any]:
+    ensure_storage()
+    dashboard_name = card.get("dashboard_name") or "Default"
+    save_dashboard(dashboard_name)
+    state = _dashboard_state()
+    card = {
+        "id": make_id(card["name"]),
+        "created_at": utc_now(),
+        "updated_at": utc_now(),
+        "dashboard_name": dashboard_name,
+        **card,
+    }
+    state["cards"].append(card)
+    write_dashboard_state(state)
+    return card
+
+
+def list_saved_views() -> list[dict[str, Any]]:
+    ensure_storage()
+    return read_json(VIEWS_FILE, [])
+
+
+def get_saved_view(view_id: str) -> dict[str, Any] | None:
+    return next((view for view in list_saved_views() if view["id"] == view_id), None)
+
+
+def save_saved_view(view: dict[str, Any]) -> dict[str, Any]:
+    ensure_storage()
+    view = {
+        "id": make_id(view["name"]),
+        "created_at": utc_now(),
+        "updated_at": utc_now(),
+        **view,
+    }
+    views = list_saved_views()
+    views.append(view)
+    write_json(VIEWS_FILE, views)
+    return view
+
+
+def delete_saved_view(view_id: str) -> None:
+    ensure_storage()
+    views = [view for view in list_saved_views() if view["id"] != view_id]
+    write_json(VIEWS_FILE, views)
+
+
+def list_favorites() -> list[dict[str, Any]]:
+    dashboard_favorites = [
+        {
+            "key": f"dashboard:{dashboard['id']}",
+            "type": "dashboard",
+            "item_id": dashboard["id"],
+            "name": dashboard["name"],
+            "created_at": dashboard.get("updated_at") or dashboard.get("created_at") or utc_now(),
+        }
+        for dashboard in list_dashboards()
+        if dashboard.get("favorite", False)
+    ]
+    view_favorites = [
+        {
+            "key": f"view:{view['id']}",
+            "type": "view",
+            "item_id": view["id"],
+            "name": view["name"],
+            "created_at": view.get("updated_at") or view.get("created_at") or utc_now(),
+        }
+        for view in list_saved_views()
+        if view.get("favorite", False)
+    ]
+    return sorted(dashboard_favorites + view_favorites, key=lambda item: item["created_at"], reverse=True)
+
+
+def is_favorite(item_type: str, item_id: str) -> bool:
+    if item_type == "dashboard":
+        dashboard = next((item for item in list_dashboards() if item["id"] == item_id), None)
+        return bool(dashboard and dashboard.get("favorite", False))
+    if item_type == "view":
+        view = get_saved_view(item_id)
+        return bool(view and view.get("favorite", False))
+    return False
+
+
+def toggle_favorite(item_type: str, item_id: str, name: str) -> bool:
+    new_value = not is_favorite(item_type, item_id)
+    if item_type == "dashboard":
+        state = _dashboard_state()
+        for dashboard in state["dashboards"]:
+            if dashboard["id"] == item_id:
+                dashboard["favorite"] = new_value
+                dashboard["updated_at"] = utc_now()
+                break
+        write_dashboard_state(state)
+        return new_value
+    if item_type == "view":
+        views = list_saved_views()
+        for view in views:
+            if view["id"] == item_id:
+                view["favorite"] = new_value
+                view["updated_at"] = utc_now()
+                break
+        write_json(VIEWS_FILE, views)
+        return new_value
+    return False
