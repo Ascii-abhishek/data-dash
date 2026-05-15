@@ -250,8 +250,110 @@ def inject_css() -> None:
             border-color: var(--ttd-blue);
             color: var(--ttd-blue-strong);
         }
+        div[data-testid="stExpander"] {
+            border-color: rgba(128, 128, 128, 0.35);
+            border-radius: 8px;
+        }
+        div[data-testid="stExpander"] summary p {
+            color: rgba(128, 128, 128, 0.95);
+            font-size: 0.82rem;
+            font-weight: 800;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+        }
+        .ttd-control-panel + div[data-testid="stHorizontalBlock"],
+        div[data-testid="stExpander"] div[data-testid="stHorizontalBlock"] {
+            align-items: stretch;
+        }
+        div[data-testid="stExpander"] div.stButton,
+        div[data-testid="stExpander"] div.stButton > button {
+            min-height: 2.75rem;
+            width: 100%;
+        }
+        div[data-testid="stCheckbox"] {
+            width: 100%;
+        }
+        div[data-testid="stCheckbox"] label {
+            align-items: center;
+            border: 1px solid rgba(128, 128, 128, 0.35);
+            border-radius: 8px;
+            background: rgba(128, 128, 128, 0.08);
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(2.5rem, 1fr);
+            min-height: 2.75rem;
+            padding: 0.45rem 0.7rem;
+            width: 100%;
+        }
+        div[data-testid="stCheckbox"] label:hover {
+            border-color: var(--ttd-blue);
+        }
+        div[data-testid="stCheckbox"] label > div:first-child {
+            justify-self: end;
+            order: 2;
+        }
+        div[data-testid="stCheckbox"] label > div:last-child {
+            min-width: 0;
+            order: 1;
+            padding-left: 0;
+        }
+        div[data-testid="stCheckbox"] p {
+            font-weight: 650;
+            white-space: nowrap;
+        }
+        div[data-testid="stNumberInput"] {
+            align-items: center;
+            background: rgba(128, 128, 128, 0.08);
+            border: 1px solid rgba(128, 128, 128, 0.35);
+            border-radius: 8px;
+            box-sizing: border-box;
+            display: flex;
+            gap: 0.5rem;
+            min-height: 2.75rem;
+            padding: 0.35rem 0.7rem;
+            width: 100%;
+        }
+        div[data-testid="stNumberInput"]:hover {
+            border-color: var(--ttd-blue);
+        }
+        div[data-testid="stNumberInput"] label {
+            flex: 1 1 50%;
+            margin: 0;
+            min-width: 0;
+        }
+        div[data-testid="stNumberInput"] label p {
+            font-size: 0.78rem;
+            font-weight: 700;
+            line-height: 1.1;
+        }
+        div[data-testid="stNumberInput"] [data-baseweb="input"] {
+            background: transparent;
+            border: 0;
+            flex: 1 1 50%;
+            min-height: 1.65rem;
+            min-width: 0;
+        }
+        div[data-testid="stNumberInput"] input {
+            background: transparent;
+            font-weight: 650;
+            padding-left: 0;
+        }
         div[data-testid="stVerticalBlockBorderWrapper"] {
             border-radius: 8px;
+        }
+        @media (max-width: 900px) {
+            div[data-testid="stHorizontalBlock"] {
+                flex-wrap: wrap;
+            }
+            div[data-testid="stHorizontalBlock"] > div {
+                min-width: min(100%, 16rem);
+                flex: 1 1 16rem !important;
+            }
+            [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] {
+                flex-wrap: nowrap;
+            }
+            [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] > div {
+                min-width: 0;
+            }
         }
         </style>
         """,
@@ -324,6 +426,84 @@ def inject_dynamic_button_styles() -> None:
           button.onmouseenter = () => paint(button, hover);
           button.onmouseleave = () => paint(button, normal);
         }
+        function styleCheckboxes() {
+          doc.querySelectorAll("div[data-testid='stCheckbox']").forEach((checkbox) => {
+            checkbox.style.width = "100%";
+            checkbox.style.minWidth = "100%";
+            const outer = checkbox.parentElement;
+            if (outer) {
+              outer.style.width = "100%";
+              outer.style.minWidth = "100%";
+            }
+            const label = checkbox.querySelector("label");
+            if (!label) return;
+            Object.assign(label.style, {
+              alignItems: "center",
+              background: "rgba(128, 128, 128, 0.08)",
+              border: "1px solid rgba(128, 128, 128, 0.35)",
+              borderRadius: "8px",
+              boxSizing: "border-box",
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1fr) minmax(2.5rem, 1fr)",
+              minHeight: "44px",
+              padding: "0.45rem 0.7rem",
+              width: "100%"
+            });
+            const labelParts = Array.from(label.children);
+            if (labelParts[0]) {
+              labelParts[0].style.justifySelf = "end";
+              labelParts[0].style.order = "2";
+            }
+            if (labelParts[1]) {
+              labelParts[1].style.minWidth = "0";
+              labelParts[1].style.order = "1";
+              labelParts[1].style.paddingLeft = "0";
+            }
+            label.querySelectorAll("p").forEach((text) => {
+              text.style.fontWeight = "650";
+              text.style.whiteSpace = "nowrap";
+            });
+          });
+        }
+        function styleNumberInputs() {
+          doc.querySelectorAll("div[data-testid='stNumberInput']").forEach((input) => {
+            Object.assign(input.style, {
+              alignItems: "center",
+              background: "rgba(128, 128, 128, 0.08)",
+              border: "1px solid rgba(128, 128, 128, 0.35)",
+              borderRadius: "8px",
+              boxSizing: "border-box",
+              display: "flex",
+              gap: "0.5rem",
+              minHeight: "44px",
+              padding: "0.35rem 0.7rem",
+              width: "100%"
+            });
+            input.querySelectorAll("label").forEach((label) => {
+              label.style.flex = "1 1 50%";
+              label.style.margin = "0";
+              label.style.minWidth = "0";
+            });
+            input.querySelectorAll("label p").forEach((text) => {
+              text.style.fontSize = "0.78rem";
+              text.style.fontWeight = "700";
+              text.style.lineHeight = "1.1";
+              text.style.whiteSpace = "nowrap";
+            });
+            input.querySelectorAll("[data-baseweb='input']").forEach((box) => {
+              box.style.background = "transparent";
+              box.style.border = "0";
+              box.style.flex = "1 1 50%";
+              box.style.minHeight = "26px";
+              box.style.minWidth = "0";
+            });
+            input.querySelectorAll("input").forEach((field) => {
+              field.style.background = "transparent";
+              field.style.fontWeight = "650";
+              field.style.paddingLeft = "0";
+            });
+          });
+        }
         function applyStyles() {
           doc.querySelectorAll("button").forEach((button) => {
             const text = (button.innerText || button.getAttribute("aria-label") || "").trim();
@@ -343,6 +523,8 @@ def inject_dynamic_button_styles() -> None:
               wireHover(button, starred, starredHover);
             }
           });
+          styleCheckboxes();
+          styleNumberInputs();
         }
         applyStyles();
         const observer = new MutationObserver(applyStyles);

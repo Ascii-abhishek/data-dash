@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+import polars as pl
 import streamlit as st
+import streamlit.components.v1 as components
 
 from tick_ticker_dash.app.common import (
     cached_preview,
@@ -16,6 +18,7 @@ from tick_ticker_dash.app.common import (
     source_name,
     source_type_icon_name,
 )
+from tick_ticker_dash.app.controls import render_control_panel
 from tick_ticker_dash.app.state import open_favorite
 from tick_ticker_dash.app.styles import action_link, page_title
 from tick_ticker_dash.connections.registry import list_source_tables
@@ -26,8 +29,10 @@ from tick_ticker_dash.storage.local_store import (
     list_favorites,
     list_saved_views,
     list_sources,
+    read_query_state,
     save_saved_view,
     toggle_favorite,
+    write_query_state,
 )
 
 
@@ -64,19 +69,33 @@ def render_views_page() -> None:
         render_d1_source_browser(source)
         return
 
-    controls = st.columns([0.28, 0.28, 0.18, 0.26], vertical_alignment="bottom")
-    limit = controls[0].number_input("Preview rows", min_value=1, max_value=10000, value=200, step=50)
-    refresh_seconds = controls[1].number_input(
-        "Refresh interval seconds",
-        min_value=5,
-        value=max(int(source["metadata"].get("refresh_seconds", 60)), 5),
-        step=5,
+    controls = render_control_panel(
+        "Preview controls",
+        [
+            {"id": "limit", "kind": "number", "label": "Rows", "min_value": 1, "max_value": 10000, "value": 200, "step": 50},
+            {"id": "auto_refresh", "kind": "checkbox", "label": "Auto refresh", "value": False},
+            {
+                "id": "refresh_seconds",
+                "kind": "number",
+                "label": "Interval (s)",
+                "min_value": 5,
+                "value": max(int(source["metadata"].get("refresh_seconds", 60)), 5),
+                "step": 5,
+            },
+            {"id": "refresh_now", "kind": "button", "label": "Refresh now", "icon": ":material/refresh:"},
+        ],
+        key_prefix=f"source_preview_{source['id']}",
     )
-    if controls[2].button("Refresh now", icon=":material/refresh:", use_container_width=True):
+    if controls["refresh_now"]:
         clear_data_cache(source["id"])
     where_clause = st.text_input("WHERE condition", placeholder="<col_name> <operator> <value> (e.g. timestamp > '2024-01-01')")
-    auto_refresh = st.checkbox("Enable auto refresh", value=False)
-    render_source_preview(source, int(limit), auto_refresh, int(refresh_seconds), where_clause.strip())
+    render_source_preview(
+        source,
+        int(controls["limit"]),
+        bool(controls["auto_refresh"]),
+        int(controls["refresh_seconds"]),
+        where_clause.strip(),
+    )
 
 
 def render_d1_source_browser(source: dict[str, Any]) -> None:
@@ -121,17 +140,23 @@ def render_d1_source_browser(source: dict[str, Any]) -> None:
         st.caption("Select a table to preview its rows.")
         return
 
-    controls = st.columns([0.28, 0.28, 0.18, 0.26], vertical_alignment="bottom")
-    limit = controls[0].number_input("Preview rows", min_value=1, max_value=10000, value=200, step=50)
-    refresh_seconds = controls[1].number_input("Refresh interval seconds", min_value=5, value=60, step=5)
-    if controls[2].button("Refresh now", icon=":material/refresh:", use_container_width=True):
+    controls = render_control_panel(
+        "Preview controls",
+        [
+            {"id": "limit", "kind": "number", "label": "Rows", "min_value": 1, "max_value": 10000, "value": 200, "step": 50},
+            {"id": "auto_refresh", "kind": "checkbox", "label": "Auto refresh", "value": False},
+            {"id": "refresh_seconds", "kind": "number", "label": "Interval (s)", "min_value": 5, "value": 60, "step": 5},
+            {"id": "refresh_now", "kind": "button", "label": "Refresh now", "icon": ":material/refresh:"},
+        ],
+        key_prefix=f"d1_preview_{source['id']}",
+    )
+    if controls["refresh_now"]:
         clear_data_cache(source["id"])
     where_clause = st.text_input("WHERE condition", placeholder="e.g. name = 'Dev' and created_at > '2024-01-01'")
-    auto_refresh = st.checkbox("Enable auto refresh", value=False)
 
-    sql = build_table_sql(selected_table, int(limit), where_clause.strip())
+    sql = build_table_sql(selected_table, int(controls["limit"]), where_clause.strip())
     st.code(sql, language="sql")
-    render_d1_table_preview(source, sql, auto_refresh, int(refresh_seconds))
+    render_d1_table_preview(source, sql, bool(controls["auto_refresh"]), int(controls["refresh_seconds"]))
 
 
 def render_d1_table_preview(source: dict[str, Any], sql: str, auto_refresh: bool, refresh_seconds: int) -> None:
@@ -202,17 +227,25 @@ def render_saved_view(view_id: str) -> None:
         return
 
     page_title(view["name"], "visibility")
-    controls = st.columns([0.22, 0.26, 0.18, 0.34], vertical_alignment="bottom")
-    auto_refresh = controls[0].checkbox("Enable auto refresh", value=bool(view.get("auto_refresh", False)))
-    refresh_seconds = int(
-        controls[1].number_input(
-            "Refresh interval seconds",
-            min_value=5,
-            value=max(int(view.get("refresh_seconds", 60)), 5),
-            step=5,
-        )
+    controls = render_control_panel(
+        "View controls",
+        [
+            {"id": "auto_refresh", "kind": "checkbox", "label": "Auto refresh", "value": bool(view.get("auto_refresh", False))},
+            {
+                "id": "refresh_seconds",
+                "kind": "number",
+                "label": "Interval (s)",
+                "min_value": 5,
+                "value": max(int(view.get("refresh_seconds", 60)), 5),
+                "step": 5,
+            },
+            {"id": "refresh_now", "kind": "button", "label": "Refresh now", "icon": ":material/refresh:"},
+        ],
+        key_prefix=f"saved_view_{view_id}",
     )
-    if controls[2].button("Refresh now", icon=":material/refresh:", use_container_width=True):
+    auto_refresh = bool(controls["auto_refresh"])
+    refresh_seconds = int(controls["refresh_seconds"])
+    if controls["refresh_now"]:
         clear_data_cache(source["id"])
 
     @st.fragment(run_every=f"{refresh_seconds}s")
@@ -276,13 +309,36 @@ def render_query_tool_page() -> None:
     selected_id = st.session_state.get("selected_source_id")
     index = source_ids.index(selected_id) if selected_id in source_ids else 0
     source_id = st.selectbox("Data source", source_ids, index=index, format_func=source_name)
-    sql = st.text_area("SQL", value=default_sql_for_source(source_id), height=180)
-    auto_refresh = st.checkbox("Enable auto refresh for saved view", value=False)
-    refresh_seconds = st.number_input("Refresh interval seconds", min_value=5, value=60, step=5)
+    st.session_state["selected_source_id"] = source_id
 
-    actions = st.columns([0.16, 0.2, 0.64], vertical_alignment="bottom")
-    run_query = actions[0].button("Run query", type="primary", icon=":material/play_arrow:", use_container_width=True)
-    save_result = actions[1].button("Save as view", icon=":material/save:", use_container_width=True)
+    persisted_state = read_query_state()
+    sql_key = f"query_tool_sql_{source_id}"
+    if sql_key not in st.session_state:
+        st.session_state[sql_key] = persisted_state.get("drafts", {}).get(source_id) or default_sql_for_source(source_id)
+    sql = st.text_area(
+        "SQL",
+        height=180,
+        key=sql_key,
+        placeholder="Write SQL here. Cmd+Enter on Mac or Ctrl+Enter on Windows/Linux runs the query.",
+        help="Cmd+Enter on Mac or Ctrl+Enter on Windows/Linux runs the query.",
+    )
+    _save_query_draft(source_id, sql)
+    _wire_query_shortcut()
+
+    actions = render_control_panel(
+        "Query controls",
+        [
+            {"id": "run_query", "kind": "button", "label": "Run query", "type": "primary", "icon": ":material/play_arrow:"},
+            {"id": "save_result", "kind": "button", "label": "Save as view", "icon": ":material/save:"},
+            {"id": "auto_refresh", "kind": "checkbox", "label": "Auto refresh", "value": False},
+            {"id": "refresh_seconds", "kind": "number", "label": "Interval (s)", "min_value": 5, "value": 60, "step": 5},
+        ],
+        key_prefix=f"query_tool_{source_id}",
+    )
+    run_query = bool(actions["run_query"])
+    save_result = bool(actions["save_result"])
+    auto_refresh = bool(actions["auto_refresh"])
+    refresh_seconds = int(actions["refresh_seconds"])
 
     if save_result:
         st.session_state["show_save_view"] = True
@@ -300,8 +356,8 @@ def render_query_tool_page() -> None:
                         "name": view_name,
                         "source_id": source_id,
                         "sql": sql,
-                        "auto_refresh": bool(auto_refresh),
-                        "refresh_seconds": int(refresh_seconds),
+                        "auto_refresh": False,
+                        "refresh_seconds": 60,
                     }
                 )
                 st.session_state["selected_view_id"] = view["id"]
@@ -311,18 +367,99 @@ def render_query_tool_page() -> None:
                 st.success("Saved view.")
                 st.rerun()
 
-    if run_query:
-        source = get_source(source_id)
-        if not source:
-            st.error("Source not found.")
-            return
-        try:
-            with st.spinner("Loading market data..."):
-                df, cached_at, from_cache = cached_sql(source, sql, int(refresh_seconds))
-            render_cache_status(cached_at, from_cache)
-            render_dataframe(df, "query_result")
-        except Exception as exc:
-            st.error(str(exc))
+    if auto_refresh:
+        _render_auto_query_result(source_id, sql, int(refresh_seconds))
+    elif run_query:
+        _render_query_result(source_id, sql, int(refresh_seconds))
+    else:
+        _render_persisted_query_result(source_id, sql)
+
+
+def _save_query_draft(source_id: str, sql: str) -> None:
+    state = read_query_state()
+    drafts = state.setdefault("drafts", {})
+    if drafts.get(source_id) == sql:
+        return
+    drafts[source_id] = sql
+    write_query_state(state)
+
+
+def _render_auto_query_result(source_id: str, sql: str, refresh_seconds: int) -> None:
+    @st.fragment(run_every=f"{max(refresh_seconds, 5)}s")
+    def _render() -> None:
+        _render_query_result(source_id, sql, refresh_seconds)
+
+    _render()
+
+
+def _render_query_result(source_id: str, sql: str, refresh_seconds: int) -> None:
+    source = get_source(source_id)
+    if not source:
+        st.error("Source not found.")
+        return
+    try:
+        with st.spinner("Loading market data..."):
+            df, cached_at, from_cache = cached_sql(source, sql, refresh_seconds)
+        _save_query_result(source_id, sql, df, cached_at)
+        render_cache_status(cached_at, from_cache)
+        render_dataframe(df, "query_result")
+    except Exception as exc:
+        st.error(str(exc))
+
+
+def _render_persisted_query_result(source_id: str, sql: str) -> None:
+    result = read_query_state().get("last_result", {})
+    if result.get("source_id") != source_id or result.get("sql") != sql:
+        return
+    rows = result.get("rows") or []
+    if not rows:
+        st.caption("Last result had no rows.")
+        return
+    cached_at = float(result.get("cached_at") or 0)
+    if cached_at:
+        render_cache_status(cached_at, True)
+    render_dataframe(pl.DataFrame(rows), "query_result")
+    if result.get("truncated"):
+        st.caption("Persisted result preview is limited to the first 5000 rows.")
+
+
+def _save_query_result(source_id: str, sql: str, df: pl.DataFrame, cached_at: float) -> None:
+    state = read_query_state()
+    rows = df.head(5000).to_dicts()
+    state["last_result"] = {
+        "source_id": source_id,
+        "sql": sql,
+        "cached_at": cached_at,
+        "rows": rows,
+        "truncated": df.height > len(rows),
+    }
+    write_query_state(state)
+
+
+def _wire_query_shortcut() -> None:
+    components.html(
+        """
+        <script>
+        const doc = window.parent.document;
+        if (!window.parent.__ttdQueryShortcut) {
+          window.parent.__ttdQueryShortcut = true;
+          doc.addEventListener("keydown", (event) => {
+            const isRunShortcut = event.key === "Enter" && (event.metaKey || event.ctrlKey);
+            const activeTag = (doc.activeElement && doc.activeElement.tagName || "").toLowerCase();
+            if (!isRunShortcut || activeTag !== "textarea") return;
+            const buttons = Array.from(doc.querySelectorAll("button"));
+            const runButton = buttons.find((button) => (button.innerText || "").trim().includes("Run query"));
+            if (runButton) {
+              event.preventDefault();
+              runButton.click();
+            }
+          }, true);
+        }
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
 
 
 def render_source_preview(

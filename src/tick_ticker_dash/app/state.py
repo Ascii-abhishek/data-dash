@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -21,7 +21,10 @@ def apply_route_from_url() -> None:
         return
     st.session_state["route_initialized"] = True
 
-    path = urlparse(st.context.url).path.strip("/")
+    parsed = urlparse(st.context.url)
+    params = parse_qs(parsed.query)
+    route_param = params.get("route", [None])[0]
+    path = (route_param or parsed.path.strip("/")).strip("/")
     parts = [part for part in path.split("/") if part]
     if not parts:
         return
@@ -48,13 +51,17 @@ def apply_route_from_url() -> None:
 
 def sync_route_to_url() -> None:
     route = _current_route()
+    params = dict(st.query_params)
+    params["route"] = route.strip("/") or "dashboard"
+    query = urlencode(params)
     components.html(
         f"""
         <script>
-        const route = {route!r};
-        const current = window.parent.location.pathname;
-        if (current !== route) {{
-          window.parent.history.replaceState(null, "", route + window.parent.location.search);
+        const query = {query!r};
+        const nextUrl = window.parent.location.pathname + "?" + query;
+        const current = window.parent.location.pathname + window.parent.location.search;
+        if (current !== nextUrl) {{
+          window.parent.history.replaceState(null, "", nextUrl);
         }}
         </script>
         """,
@@ -64,10 +71,9 @@ def sync_route_to_url() -> None:
 
 
 def _current_route() -> str:
-    if st.session_state.get("selected_source_id"):
-        return f"/source/{st.session_state['selected_source_id']}"
-
     page = st.session_state.get("page", "Dashboard")
+    if page == "Views" and st.session_state.get("selected_source_id"):
+        return f"/source/{st.session_state['selected_source_id']}"
     if page == "Views":
         return "/views"
     if page == "Query Tool":
@@ -113,7 +119,10 @@ def handle_action_params() -> None:
             st.session_state["selected_view_id"] = None
         clear_data_cache()
 
+    route = st.query_params.get("route")
     st.query_params.clear()
+    if route:
+        st.query_params["route"] = route
     st.rerun()
 
 

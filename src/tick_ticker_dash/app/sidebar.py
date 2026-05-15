@@ -18,7 +18,6 @@ def render_sidebar() -> None:
         st.markdown("<div class='sidebar-section'>", unsafe_allow_html=True)
         st.markdown("<div class='section-label'>Home</div>", unsafe_allow_html=True)
         if st.button("Dashboards", key="nav_dashboard", icon=":material/dashboard:", use_container_width=True):
-            st.session_state["selected_dashboard_name"] = None
             st.session_state["page"] = "Dashboard"
         if st.button("Views", key="nav_views", icon=":material/visibility:", use_container_width=True):
             st.session_state["page"] = "Views"

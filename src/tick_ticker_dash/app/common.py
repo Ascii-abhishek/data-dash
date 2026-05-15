@@ -113,12 +113,12 @@ def cache_key(kind: str, source: dict[str, Any], *parts: Any) -> str:
     return json.dumps(payload, sort_keys=True, default=str)
 
 
-def get_from_cache(key: str, ttl_seconds: int) -> tuple[pl.DataFrame | None, float | None, bool]:
+def get_from_cache(key: str, ttl_seconds: int | None) -> tuple[pl.DataFrame | None, float | None, bool]:
     item = st.session_state["data_cache"].get(key)
     if not item:
         return None, None, False
     cached_at = float(item["cached_at"])
-    if time.time() - cached_at > ttl_seconds:
+    if ttl_seconds is not None and time.time() - cached_at > ttl_seconds:
         st.session_state["data_cache"].pop(key, None)
         return None, None, False
     return item["df"], cached_at, True
@@ -143,7 +143,7 @@ def cached_preview(
     return put_in_cache(key, preview_source(source, limit, where_clause or None))
 
 
-def cached_sql(source: dict[str, Any], sql: str, ttl_seconds: int) -> tuple[pl.DataFrame, float, bool]:
+def cached_sql(source: dict[str, Any], sql: str, ttl_seconds: int | None) -> tuple[pl.DataFrame, float, bool]:
     key = cache_key("sql", source, sql)
     cached, cached_at, from_cache = get_from_cache(key, ttl_seconds)
     if cached is not None and cached_at is not None:

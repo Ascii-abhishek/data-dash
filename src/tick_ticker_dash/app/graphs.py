@@ -85,14 +85,14 @@ def render_chart_config_controls(
         with c2:
             low_column = select_column("Low", columns, f"{key_prefix}_low", current_config.get("low") or defaults.get("low"), required=True)
             close_column = select_column("Close", columns, f"{key_prefix}_close", current_config.get("close") or defaults.get("close"), required=True)
-            tooltip = select_column("Tooltip field", columns, f"{key_prefix}_tooltip", current_config.get("tooltip"))
+            lower_field = select_column("Lower bar field", columns, f"{key_prefix}_lower", current_config.get("lower") or current_config.get("volume"))
         return {
             "x": x,
             "open": open_column,
             "high": high_column,
             "low": low_column,
             "close": close_column,
-            "tooltip": tooltip,
+            "lower": lower_field,
         }
 
     if card_type == "histogram":
@@ -132,24 +132,8 @@ def render_result(df: pl.DataFrame, card_type: str, key_prefix: str, config: dic
         return
 
     config = config or {}
-    if card_type == "line":
-        st.line_chart(df, x=config.get("x"), y=config.get("y"), color=config.get("color"), use_container_width=True)
-        return
-    if card_type == "area":
-        st.area_chart(df, x=config.get("x"), y=config.get("y"), color=config.get("color"), use_container_width=True)
-        return
-    if card_type == "bar":
-        st.bar_chart(df, x=config.get("x"), y=config.get("y"), color=config.get("color"), use_container_width=True)
-        return
-    if card_type == "scatter":
-        st.scatter_chart(
-            df,
-            x=config.get("x"),
-            y=config.get("y"),
-            color=config.get("color"),
-            size=config.get("size"),
-            use_container_width=True,
-        )
+    if card_type in NATIVE_CHART_TYPES:
+        st.altair_chart(_native_chart(df.to_pandas(), card_type, config), use_container_width=True, key=key_prefix)
         return
     if card_type in CUSTOM_CHART_TYPES:
         render_custom_chart(df, card_type, config, key_prefix)
@@ -180,11 +164,11 @@ def _candlestick_chart(data: Any, config: dict[str, Any]) -> alt.Chart:
     low_column = config["low"]
     close_column = config["close"]
     tooltip = [x, open_column, high_column, low_column, close_column]
-    if config.get("tooltip") and config["tooltip"] not in tooltip:
-        tooltip.append(config["tooltip"])
+    if config.get("lower") and config["lower"] not in tooltip:
+        tooltip.append(config["lower"])
 
     base = alt.Chart(data).encode(
-        x=alt.X(f"{x}:T", title=x),
+        x=alt.X(_typed_field(data, x), title=x),
         color=alt.condition(
             alt.datum[open_column] <= alt.datum[close_column],
             alt.value("#2e7d32"),
@@ -195,7 +179,54 @@ def _candlestick_chart(data: Any, config: dict[str, Any]) -> alt.Chart:
     y_scale = alt.Scale(zero=False, nice=False)
     rule = base.mark_rule().encode(y=alt.Y(f"{low_column}:Q", title="Price", scale=y_scale), y2=f"{high_column}:Q")
     bar = base.mark_bar(size=8).encode(y=f"{open_column}:Q", y2=f"{close_column}:Q")
-    return (rule + bar).properties(height=360).interactive(bind_y=True)
+    price = (rule + bar).properties(height=300)
+    if not config.get("lower"):
+        return price.interactive()
+
+    lower = (
+        alt.Chart(data)
+        .mark_bar(color="#1976d2", opacity=0.55)
+        .encode(
+            x=alt.X(_typed_field(data, x), title=x),
+            y=alt.Y(f"{config['lower']}:Q", title=config["lower"]),
+            tooltip=tooltip,
+        )
+        .properties(height=110)
+    )
+    zoom = alt.selection_interval(bind="scales", encodings=["x"], name="chart_zoom")
+    return alt.vconcat(price.add_params(zoom), lower).resolve_scale(x="shared")
+
+
+def _native_chart(data: Any, card_type: str, config: dict[str, Any]) -> alt.Chart:
+    x = config.get("x")
+    y = config.get("y")
+    if not x or not y:
+        return (
+            alt.Chart(data)
+            .mark_text(text="Select X and Y fields for this chart.")
+            .properties(height=260)
+        )
+
+    base = alt.Chart(data).encode(
+        x=alt.X(_typed_field(data, x), title=x),
+        y=alt.Y(_typed_field(data, y), title=y),
+        tooltip=[column for column in [x, y, config.get("color"), config.get("size")] if column],
+    )
+    if config.get("color"):
+        base = base.encode(color=alt.Color(_typed_field(data, config["color"]), title=config["color"]))
+
+    if card_type == "line":
+        return base.mark_line(point=True).properties(height=360).interactive()
+    if card_type == "area":
+        return base.mark_area(opacity=0.72).properties(height=360).interactive()
+    if card_type == "bar":
+        return base.mark_bar().properties(height=360).interactive()
+    if card_type == "scatter":
+        chart = base
+        if config.get("size"):
+            chart = chart.encode(size=alt.Size(_typed_field(data, config["size"]), title=config["size"]))
+        return chart.mark_circle(size=72, opacity=0.78).properties(height=360).interactive()
+    return base.mark_point().properties(height=360).interactive()
 
 
 def _histogram_chart(data: Any, config: dict[str, Any]) -> alt.Chart:
@@ -208,7 +239,7 @@ def _histogram_chart(data: Any, config: dict[str, Any]) -> alt.Chart:
     )
     if config.get("color"):
         chart = chart.encode(color=alt.Color(f"{config['color']}:N", title=config["color"]))
-    return chart.properties(height=360)
+    return chart.properties(height=360).interactive()
 
 
 def _pie_chart(data: Any, config: dict[str, Any]) -> alt.Chart:
@@ -223,7 +254,20 @@ def _pie_chart(data: Any, config: dict[str, Any]) -> alt.Chart:
             tooltip=[alt.Tooltip(f"{color}:N", title=color), alt.Tooltip(f"sum({theta}):Q", title=theta)],
         )
         .properties(height=360)
+        .interactive()
     )
+
+
+def _typed_field(data: Any, column: str) -> str:
+    series = data[column]
+    kind = getattr(series.dtype, "kind", "")
+    if kind == "M":
+        field_type = "T"
+    elif kind in {"b", "i", "u", "f", "c"}:
+        field_type = "Q"
+    else:
+        field_type = "N"
+    return f"{column}:{field_type}"
 
 
 def _matching_defaults(columns: list[str], candidates: dict[str, tuple[str, ...]]) -> dict[str, str]:

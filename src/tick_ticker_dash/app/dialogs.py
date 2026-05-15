@@ -29,6 +29,7 @@ from tick_ticker_dash.storage.local_store import (
     list_dashboard_names,
     list_sources,
     read_credentials,
+    rename_dashboard,
     save_dashboard,
     save_dashboard_card,
     save_source,
@@ -143,6 +144,29 @@ def render_create_dashboard_dialog() -> None:
         dashboard = save_dashboard(name)
         st.session_state["selected_dashboard_name"] = dashboard["name"]
         st.success("Dashboard created.")
+    st.rerun()
+
+
+@st.dialog("Rename dashboard")
+def render_rename_dashboard_dialog(dashboard_name: str) -> None:
+    st.markdown(f"### {material_icon('edit')} Rename dashboard", unsafe_allow_html=True)
+    with st.form("rename_dashboard_form"):
+        new_name = st.text_input("Dashboard name", value=dashboard_name)
+        left, right = st.columns(2)
+        submitted = left.form_submit_button("Save", type="primary", icon=":material/save:", use_container_width=True)
+        cancelled = right.form_submit_button("Cancel", icon=":material/close:", use_container_width=True)
+
+    if cancelled:
+        st.rerun()
+
+    if submitted:
+        try:
+            dashboard = rename_dashboard(dashboard_name, new_name)
+        except ValueError as exc:
+            st.error(str(exc))
+            return
+        st.session_state["selected_dashboard_name"] = dashboard["name"]
+        st.success("Dashboard renamed.")
         st.rerun()
 
 

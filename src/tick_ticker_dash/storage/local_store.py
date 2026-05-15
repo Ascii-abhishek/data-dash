@@ -4,6 +4,7 @@ import json
 import re
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from tick_ticker_dash.config.settings import settings
@@ -12,6 +13,7 @@ SOURCES_FILE = settings.connections_dir / "sources.json"
 UI_STATE_DIR = settings.ui_dir
 DASHBOARDS_FILE = UI_STATE_DIR / "dashboards.json"
 VIEWS_FILE = UI_STATE_DIR / "views.json"
+QUERY_STATE_FILE = UI_STATE_DIR / "query_state.json"
 
 
 def ensure_storage() -> None:
@@ -24,6 +26,8 @@ def ensure_storage() -> None:
         write_json(DASHBOARDS_FILE, [])
     if not VIEWS_FILE.exists():
         write_json(VIEWS_FILE, [])
+    if not QUERY_STATE_FILE.exists():
+        write_json(QUERY_STATE_FILE, {})
 
 
 def read_json(path: Path, default: Any) -> Any:
@@ -37,7 +41,18 @@ def read_json(path: Path, default: Any) -> Any:
 
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+    path.write_text(json.dumps(payload, default=str, indent=2, sort_keys=True))
+
+
+def read_query_state() -> dict[str, Any]:
+    ensure_storage()
+    state = read_json(QUERY_STATE_FILE, {})
+    return state if isinstance(state, dict) else {}
+
+
+def write_query_state(state: dict[str, Any]) -> None:
+    ensure_storage()
+    write_json(QUERY_STATE_FILE, state)
 
 
 def make_id(name: str) -> str:
@@ -176,6 +191,28 @@ def save_dashboard(name: str) -> dict[str, Any]:
         "updated_at": utc_now(),
     }
     state["dashboards"].append(dashboard)
+    write_dashboard_state(state)
+    return dashboard
+
+
+def rename_dashboard(old_name: str, new_name: str) -> dict[str, Any]:
+    new_name = new_name.strip()
+    if not new_name:
+        raise ValueError("Dashboard name is required.")
+    state = _dashboard_state()
+    dashboard = next((item for item in state["dashboards"] if item["name"] == old_name), None)
+    if not dashboard:
+        raise ValueError(f"Dashboard not found: {old_name}")
+    duplicate = next((item for item in state["dashboards"] if item["name"] == new_name and item["id"] != dashboard["id"]), None)
+    if duplicate:
+        raise ValueError(f"Dashboard already exists: {new_name}")
+
+    dashboard["name"] = new_name
+    dashboard["updated_at"] = utc_now()
+    for card in state["cards"]:
+        if (card.get("dashboard_name") or "Default") == old_name:
+            card["dashboard_name"] = new_name
+            card["updated_at"] = utc_now()
     write_dashboard_state(state)
     return dashboard
 
