@@ -5,7 +5,7 @@ import streamlit as st
 from tick_ticker_dash.app.dashboard import render_dashboard_page
 from tick_ticker_dash.app.sidebar import render_sidebar
 from tick_ticker_dash.app.state import apply_route_from_url, handle_action_params, sync_route_to_url
-from tick_ticker_dash.app.styles import inject_css, inject_dynamic_button_styles
+from tick_ticker_dash.app.styles import inject_css
 from tick_ticker_dash.app.views import render_favorites_page, render_query_tool_page, render_views_page
 from tick_ticker_dash.config.settings import settings
 
@@ -34,4 +34,3 @@ def main() -> None:
     else:
         render_query_tool_page()
     sync_route_to_url()
-    inject_dynamic_button_styles()

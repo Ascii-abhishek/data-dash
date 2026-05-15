@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, urlparse
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 from tick_ticker_dash.app.common import clear_data_cache
 from tick_ticker_dash.storage.local_store import (
@@ -21,7 +20,12 @@ def apply_route_from_url() -> None:
         return
     st.session_state["route_initialized"] = True
 
-    parsed = urlparse(st.context.url)
+    current_url = st.context.url or ""
+    if isinstance(current_url, bytes | bytearray):
+        current_url = current_url.decode()
+    else:
+        current_url = str(current_url)
+    parsed = urlparse(current_url)
     params = parse_qs(parsed.query)
     route_param = params.get("route", [None])[0]
     path = (route_param or parsed.path.strip("/")).strip("/")
@@ -52,22 +56,12 @@ def apply_route_from_url() -> None:
 def sync_route_to_url() -> None:
     route = _current_route()
     params = dict(st.query_params)
-    params["route"] = route.strip("/") or "dashboard"
-    query = urlencode(params)
-    components.html(
-        f"""
-        <script>
-        const query = {query!r};
-        const nextUrl = window.parent.location.pathname + "?" + query;
-        const current = window.parent.location.pathname + window.parent.location.search;
-        if (current !== nextUrl) {{
-          window.parent.history.replaceState(null, "", nextUrl);
-        }}
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
+    next_route = route.strip("/") or "dashboard"
+    if params.get("route") == next_route:
+        return
+    params["route"] = next_route
+    st.query_params.clear()
+    st.query_params.update(params)
 
 
 def _current_route() -> str:

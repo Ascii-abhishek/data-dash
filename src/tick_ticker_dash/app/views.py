@@ -4,7 +4,6 @@ from typing import Any
 
 import polars as pl
 import streamlit as st
-import streamlit.components.v1 as components
 
 from tick_ticker_dash.app.common import (
     cached_preview,
@@ -319,11 +318,9 @@ def render_query_tool_page() -> None:
         "SQL",
         height=180,
         key=sql_key,
-        placeholder="Write SQL here. Cmd+Enter on Mac or Ctrl+Enter on Windows/Linux runs the query.",
-        help="Cmd+Enter on Mac or Ctrl+Enter on Windows/Linux runs the query.",
+        placeholder="Write SQL here.",
     )
     _save_query_draft(source_id, sql)
-    _wire_query_shortcut()
 
     actions = render_control_panel(
         "Query controls",
@@ -434,32 +431,6 @@ def _save_query_result(source_id: str, sql: str, df: pl.DataFrame, cached_at: fl
         "truncated": df.height > len(rows),
     }
     write_query_state(state)
-
-
-def _wire_query_shortcut() -> None:
-    components.html(
-        """
-        <script>
-        const doc = window.parent.document;
-        if (!window.parent.__ttdQueryShortcut) {
-          window.parent.__ttdQueryShortcut = true;
-          doc.addEventListener("keydown", (event) => {
-            const isRunShortcut = event.key === "Enter" && (event.metaKey || event.ctrlKey);
-            const activeTag = (doc.activeElement && doc.activeElement.tagName || "").toLowerCase();
-            if (!isRunShortcut || activeTag !== "textarea") return;
-            const buttons = Array.from(doc.querySelectorAll("button"));
-            const runButton = buttons.find((button) => (button.innerText || "").trim().includes("Run query"));
-            if (runButton) {
-              event.preventDefault();
-              runButton.click();
-            }
-          }, true);
-        }
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
 
 
 def render_source_preview(

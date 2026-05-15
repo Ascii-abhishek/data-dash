@@ -144,7 +144,7 @@ def render_create_dashboard_dialog() -> None:
         dashboard = save_dashboard(name)
         st.session_state["selected_dashboard_name"] = dashboard["name"]
         st.success("Dashboard created.")
-    st.rerun()
+        st.rerun()
 
 
 @st.dialog("Rename dashboard")
