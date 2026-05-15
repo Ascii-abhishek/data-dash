@@ -36,7 +36,7 @@ def render_control_panel(
                         type=spec.get("type", "secondary"),
                         icon=spec.get("icon"),
                         help=spec.get("help"),
-                        use_container_width=True,
+                        width="stretch",
                     )
                 elif kind == "checkbox":
                     values[control_id] = st.checkbox(

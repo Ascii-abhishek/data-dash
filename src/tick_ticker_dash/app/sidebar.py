@@ -17,14 +17,20 @@ def render_sidebar() -> None:
 
         st.markdown("<div class='sidebar-section'>", unsafe_allow_html=True)
         st.markdown("<div class='section-label'>Home</div>", unsafe_allow_html=True)
-        if st.button("Dashboards", key="nav_dashboard", icon=":material/dashboard:", use_container_width=True):
+        if st.button("Dashboards", key="nav_dashboard", icon=":material/dashboard:", width="stretch"):
             st.session_state["page"] = "Dashboard"
-        if st.button("Views", key="nav_views", icon=":material/visibility:", use_container_width=True):
+            st.session_state["selected_dashboard_id"] = None
+            st.session_state["selected_dashboard_name"] = None
+        if st.button("Views", key="nav_views", icon=":material/visibility:", width="stretch"):
             st.session_state["page"] = "Views"
+            st.session_state["selected_dashboard_id"] = None
+            st.session_state["selected_dashboard_name"] = None
             st.session_state["selected_source_id"] = None
             st.session_state["selected_view_id"] = None
-        if st.button("Query Tool", key="nav_query", icon=":material/science:", use_container_width=True):
+        if st.button("Query Tool", key="nav_query", icon=":material/science:", width="stretch"):
             st.session_state["page"] = "Query Tool"
+            st.session_state["selected_dashboard_id"] = None
+            st.session_state["selected_dashboard_name"] = None
         st.markdown("</div>", unsafe_allow_html=True)
 
         if favorites:
@@ -32,20 +38,20 @@ def render_sidebar() -> None:
             st.markdown("<div class='section-label'>Favorites</div>", unsafe_allow_html=True)
             for favorite in favorites[:10]:
                 icon = ":material/dashboard:" if favorite["type"] == "dashboard" else ":material/table_view:"
-                if st.button(favorite["name"], key=f"favorite_{favorite['key']}", icon=icon, use_container_width=True):
+                if st.button(favorite["name"], key=f"favorite_{favorite['key']}", icon=icon, width="stretch"):
                     open_favorite(favorite)
             if len(favorites) > 10 and st.button(
                 "Show all",
                 key="show_all_favorites",
                 icon=":material/star:",
-                use_container_width=True,
+                width="stretch",
             ):
                 st.session_state["page"] = "Favorites"
             st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown("<div class='sidebar-section'>", unsafe_allow_html=True)
         st.markdown("<div class='section-label'>Sources</div>", unsafe_allow_html=True)
-        if st.button("Add source", key="add_source", type="primary", icon=":material/add:", use_container_width=True):
+        if st.button("Add source", key="add_source", type="primary", icon=":material/add:", width="stretch"):
             render_source_dialog()
 
         if not sources:
@@ -58,7 +64,7 @@ def render_sidebar() -> None:
                     source_display_name(source),
                     key=f"source_{source['id']}",
                     icon=source_type_icon(source),
-                    use_container_width=True,
+                    width="stretch",
                 ):
                     st.session_state["selected_source_id"] = source["id"]
                     st.session_state["selected_view_id"] = None
@@ -70,7 +76,7 @@ def render_sidebar() -> None:
                     key=f"edit_source_{source['id']}",
                     icon=":material/edit:",
                     help=f"Edit {source['name']}",
-                    use_container_width=True,
+                    width="stretch",
                 ):
                     render_source_dialog(source["id"])
                 st.markdown("</div>", unsafe_allow_html=True)

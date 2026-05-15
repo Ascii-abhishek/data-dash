@@ -133,7 +133,7 @@ def render_result(df: pl.DataFrame, card_type: str, key_prefix: str, config: dic
 
     config = config or {}
     if card_type in NATIVE_CHART_TYPES:
-        st.altair_chart(_native_chart(df.to_pandas(), card_type, config), use_container_width=True, key=key_prefix)
+        st.altair_chart(_native_chart(df.to_pandas(), card_type, config), width="stretch", key=key_prefix)
         return
     if card_type in CUSTOM_CHART_TYPES:
         render_custom_chart(df, card_type, config, key_prefix)
@@ -148,13 +148,13 @@ def render_custom_chart(df: pl.DataFrame, card_type: str, config: dict[str, Any]
         render_dataframe(df, f"{key_prefix}_table_fallback")
         return
 
-    data = df.to_pandas()
+    data = _prepare_chart_data(df.to_pandas(), config)
     if card_type == "candle":
-        st.altair_chart(_candlestick_chart(data, config), use_container_width=True, key=key_prefix)
+        st.altair_chart(_candlestick_chart(data, config), width="stretch", height="stretch", key=key_prefix)
     elif card_type == "histogram":
-        st.altair_chart(_histogram_chart(data, config), use_container_width=True, key=key_prefix)
+        st.altair_chart(_histogram_chart(data, config), width="stretch", key=key_prefix)
     elif card_type == "pie":
-        st.altair_chart(_pie_chart(data, config), use_container_width=True, key=key_prefix)
+        st.altair_chart(_pie_chart(data, config), width="stretch", key=key_prefix)
 
 
 def _candlestick_chart(data: Any, config: dict[str, Any]) -> alt.Chart:
@@ -167,8 +167,10 @@ def _candlestick_chart(data: Any, config: dict[str, Any]) -> alt.Chart:
     if config.get("lower") and config["lower"] not in tooltip:
         tooltip.append(config["lower"])
 
+    x_field = _typed_field(data, x)
+    x_axis = alt.Axis(format="%H:%M", labelOverlap=True, tickCount=10) if _looks_temporal_column(x) else alt.Axis(labelOverlap=True)
     base = alt.Chart(data).encode(
-        x=alt.X(_typed_field(data, x), title=x),
+        x=alt.X(x_field, title=None, axis=x_axis, scale=alt.Scale(nice=False)),
         color=alt.condition(
             alt.datum[open_column] <= alt.datum[close_column],
             alt.value("#2e7d32"),
@@ -178,23 +180,47 @@ def _candlestick_chart(data: Any, config: dict[str, Any]) -> alt.Chart:
     )
     y_scale = alt.Scale(zero=False, nice=False)
     rule = base.mark_rule().encode(y=alt.Y(f"{low_column}:Q", title="Price", scale=y_scale), y2=f"{high_column}:Q")
-    bar = base.mark_bar(size=8).encode(y=f"{open_column}:Q", y2=f"{close_column}:Q")
-    price = (rule + bar).properties(height=300)
+    candle_size = _candle_size(len(data))
+    bar = base.mark_bar(size=candle_size).encode(y=f"{open_column}:Q", y2=f"{close_column}:Q")
+    price = (rule + bar).properties(height=560)
+    price = price.interactive(name="price_zoom", bind_x=True, bind_y=True)
     if not config.get("lower"):
-        return price.interactive()
+        return price
 
     lower = (
         alt.Chart(data)
         .mark_bar(color="#1976d2", opacity=0.55)
         .encode(
-            x=alt.X(_typed_field(data, x), title=x),
+            x=alt.X(x_field, title=x, axis=x_axis, scale=alt.Scale(nice=False)),
             y=alt.Y(f"{config['lower']}:Q", title=config["lower"]),
             tooltip=tooltip,
         )
-        .properties(height=110)
+        .properties(height=180)
     )
-    zoom = alt.selection_interval(bind="scales", encodings=["x"], name="chart_zoom")
-    return alt.vconcat(price.add_params(zoom), lower).resolve_scale(x="shared")
+    return alt.vconcat(price, lower.interactive(name="volume_zoom", bind_x=False, bind_y=True)).resolve_scale(x="shared")
+
+
+def _prepare_chart_data(data: Any, config: dict[str, Any]) -> Any:
+    x = config.get("x")
+    if not x or x not in data.columns or not _looks_temporal_column(x):
+        return data
+
+    converted = data.copy()
+    parsed = converted[x]
+    if getattr(parsed.dtype, "kind", "") != "M":
+        parsed = parsed.astype("datetime64[ns]", errors="ignore")
+    converted[x] = parsed
+    return converted
+
+
+def _candle_size(row_count: int) -> int:
+    if row_count > 500:
+        return 3
+    if row_count > 260:
+        return 4
+    if row_count > 140:
+        return 5
+    return 8
 
 
 def _native_chart(data: Any, card_type: str, config: dict[str, Any]) -> alt.Chart:
@@ -261,13 +287,18 @@ def _pie_chart(data: Any, config: dict[str, Any]) -> alt.Chart:
 def _typed_field(data: Any, column: str) -> str:
     series = data[column]
     kind = getattr(series.dtype, "kind", "")
-    if kind == "M":
+    if kind == "M" or _looks_temporal_column(column):
         field_type = "T"
     elif kind in {"b", "i", "u", "f", "c"}:
         field_type = "Q"
     else:
         field_type = "N"
     return f"{column}:{field_type}"
+
+
+def _looks_temporal_column(column: str) -> bool:
+    normalized = column.lower()
+    return any(part in normalized for part in ("date", "time", "timestamp", "datetime"))
 
 
 def _matching_defaults(columns: list[str], candidates: dict[str, tuple[str, ...]]) -> dict[str, str]:

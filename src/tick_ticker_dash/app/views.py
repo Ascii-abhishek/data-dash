@@ -101,7 +101,7 @@ def render_d1_source_browser(source: dict[str, Any]) -> None:
     tables_key = f"d1_tables_{source['id']}"
     selected_key = f"d1_selected_table_{source['id']}"
 
-    if st.button("Refresh tables", icon=":material/refresh:", use_container_width=True):
+    if st.button("Refresh tables", icon=":material/refresh:", width="stretch"):
         st.session_state.pop(tables_key, None)
         clear_data_cache(source["id"])
 
@@ -127,7 +127,7 @@ def render_d1_source_browser(source: dict[str, Any]) -> None:
                 table_name,
                 key=f"d1_table_{source['id']}_{table_name}",
                 type="primary" if selected else "secondary",
-                use_container_width=True,
+                width="stretch",
             ):
                 st.session_state[selected_key] = table_name
                 clear_data_cache(source["id"])
@@ -181,7 +181,7 @@ def _render_sql_preview_body(source: dict[str, Any], sql: str, refresh_seconds: 
 
 def render_view_index(views: list[dict[str, Any]]) -> None:
     top = st.columns([0.18, 0.82], vertical_alignment="bottom")
-    if top[0].button("Add view", type="primary", icon=":material/add:", use_container_width=True):
+    if top[0].button("Add view", type="primary", icon=":material/add:", width="stretch"):
         st.session_state["page"] = "Query Tool"
         st.rerun()
 
@@ -283,7 +283,7 @@ def render_favorites_page() -> None:
                 "Open",
                 key=f"open_all_favorite_{favorite['key']}",
                 icon=":material/open_in_new:",
-                use_container_width=True,
+                width="stretch",
             ):
                 open_favorite(favorite)
                 st.rerun()
@@ -291,7 +291,7 @@ def render_favorites_page() -> None:
                 "Unstar",
                 key=f"unstar_all_favorite_{favorite['key']}",
                 icon=":material/star:",
-                use_container_width=True,
+                width="stretch",
             ):
                 toggle_favorite(favorite["type"], favorite["item_id"], favorite["name"])
                 st.rerun()

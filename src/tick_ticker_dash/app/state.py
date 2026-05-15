@@ -16,10 +16,6 @@ from tick_ticker_dash.storage.local_store import (
 
 
 def apply_route_from_url() -> None:
-    if st.session_state.get("route_initialized"):
-        return
-    st.session_state["route_initialized"] = True
-
     current_url = st.context.url or ""
     if isinstance(current_url, bytes | bytearray):
         current_url = current_url.decode()
@@ -27,8 +23,11 @@ def apply_route_from_url() -> None:
         current_url = str(current_url)
     parsed = urlparse(current_url)
     params = parse_qs(parsed.query)
-    route_param = params.get("route", [None])[0]
+    route_param = st.query_params.get("route") or params.get("route", [None])[0]
     path = (route_param or parsed.path.strip("/")).strip("/")
+    if st.session_state.get("applied_route") == path:
+        return
+    st.session_state["applied_route"] = path
     parts = [part for part in path.split("/") if part]
     if not parts:
         return
@@ -38,17 +37,31 @@ def apply_route_from_url() -> None:
         st.session_state["page"] = "Dashboard"
         st.session_state["selected_source_id"] = None
         st.session_state["selected_view_id"] = None
-        st.session_state["selected_dashboard_name"] = None
+        if len(parts) > 1:
+            dashboard = next((item for item in list_dashboards() if item["id"] == parts[1]), None)
+            st.session_state["selected_dashboard_id"] = dashboard["id"] if dashboard else None
+            st.session_state["selected_dashboard_name"] = dashboard["name"] if dashboard else None
+        else:
+            st.session_state["selected_dashboard_id"] = None
+            st.session_state["selected_dashboard_name"] = None
     elif route == "views":
         st.session_state["page"] = "Views"
+        st.session_state["selected_dashboard_id"] = None
+        st.session_state["selected_dashboard_name"] = None
         st.session_state["selected_source_id"] = None
         st.session_state["selected_view_id"] = None
     elif route in {"query", "query-tool"}:
         st.session_state["page"] = "Query Tool"
+        st.session_state["selected_dashboard_id"] = None
+        st.session_state["selected_dashboard_name"] = None
     elif route == "favorites":
         st.session_state["page"] = "Favorites"
+        st.session_state["selected_dashboard_id"] = None
+        st.session_state["selected_dashboard_name"] = None
     elif route == "source" and len(parts) > 1:
         st.session_state["page"] = "Views"
+        st.session_state["selected_dashboard_id"] = None
+        st.session_state["selected_dashboard_name"] = None
         st.session_state["selected_source_id"] = parts[1]
         st.session_state["selected_view_id"] = None
 
@@ -74,6 +87,8 @@ def _current_route() -> str:
         return "/query-tool"
     if page == "Favorites":
         return "/favorites"
+    if page == "Dashboard" and st.session_state.get("selected_dashboard_id"):
+        return f"/dashboard/{st.session_state['selected_dashboard_id']}"
     return "/dashboard"
 
 
@@ -87,6 +102,7 @@ def handle_action_params() -> None:
     if action == "open" and item_type == "dashboard":
         dashboard = next((item for item in list_dashboards() if item["id"] == item_id), None)
         if dashboard:
+            st.session_state["selected_dashboard_id"] = dashboard["id"]
             st.session_state["selected_dashboard_name"] = dashboard["name"]
             st.session_state["page"] = "Dashboard"
     elif action == "open" and item_type == "view":
@@ -104,7 +120,8 @@ def handle_action_params() -> None:
     elif action == "delete" and item_type == "dashboard":
         dashboard = next((item for item in list_dashboards() if item["id"] == item_id), None)
         delete_dashboard(item_id)
-        if dashboard and st.session_state.get("selected_dashboard_name") == dashboard["name"]:
+        if dashboard and st.session_state.get("selected_dashboard_id") == dashboard["id"]:
+            st.session_state["selected_dashboard_id"] = None
             st.session_state["selected_dashboard_name"] = None
         clear_data_cache()
     elif action == "delete" and item_type == "view":
@@ -113,10 +130,8 @@ def handle_action_params() -> None:
             st.session_state["selected_view_id"] = None
         clear_data_cache()
 
-    route = st.query_params.get("route")
     st.query_params.clear()
-    if route:
-        st.query_params["route"] = route
+    st.query_params["route"] = _current_route().strip("/") or "dashboard"
     st.rerun()
 
 
@@ -124,6 +139,7 @@ def open_favorite(favorite: dict[str, Any]) -> None:
     if favorite["type"] == "dashboard":
         dashboard = next((item for item in list_dashboards() if item["id"] == favorite["item_id"]), None)
         if dashboard:
+            st.session_state["selected_dashboard_id"] = dashboard["id"]
             st.session_state["selected_dashboard_name"] = dashboard["name"]
             st.session_state["page"] = "Dashboard"
         return

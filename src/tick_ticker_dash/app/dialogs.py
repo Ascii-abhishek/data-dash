@@ -78,13 +78,13 @@ def render_source_dialog(source_id: str | None = None) -> None:
         }
 
         left, middle, right = st.columns(3)
-        tested = left.form_submit_button("Test", icon=":material/network_check:", use_container_width=True)
+        tested = left.form_submit_button("Test", icon=":material/network_check:", width="stretch")
         submitted = middle.form_submit_button(
             "Save" if existing else "Add",
             icon=":material/save:" if existing else ":material/add:",
-            use_container_width=True,
+            width="stretch",
         )
-        cancelled = right.form_submit_button("Cancel", icon=":material/close:", use_container_width=True)
+        cancelled = right.form_submit_button("Cancel", icon=":material/close:", width="stretch")
 
     if cancelled:
         st.rerun()
@@ -121,7 +121,7 @@ def render_source_dialog(source_id: str | None = None) -> None:
     if existing:
         st.divider()
         st.warning("Deleting this source also removes saved views and dashboard cards that use it.")
-        if st.button("Delete source", icon=":material/delete:", use_container_width=True):
+        if st.button("Delete source", icon=":material/delete:", width="stretch"):
             delete_source(existing["id"])
             if st.session_state.get("selected_source_id") == existing["id"]:
                 st.session_state["selected_source_id"] = None
@@ -135,13 +135,14 @@ def render_create_dashboard_dialog() -> None:
     st.markdown(f"### {material_icon('dashboard')} New dashboard", unsafe_allow_html=True)
     with st.form("create_dashboard_form"):
         name = st.text_input("Dashboard name", placeholder="Market overview")
-        submitted = st.form_submit_button("Create", type="primary", icon=":material/add:", use_container_width=True)
+        submitted = st.form_submit_button("Create", type="primary", icon=":material/add:", width="stretch")
 
     if submitted:
         if not name:
             st.error("Dashboard name is required.")
             return
         dashboard = save_dashboard(name)
+        st.session_state["selected_dashboard_id"] = dashboard["id"]
         st.session_state["selected_dashboard_name"] = dashboard["name"]
         st.success("Dashboard created.")
         st.rerun()
@@ -153,8 +154,8 @@ def render_rename_dashboard_dialog(dashboard_name: str) -> None:
     with st.form("rename_dashboard_form"):
         new_name = st.text_input("Dashboard name", value=dashboard_name)
         left, right = st.columns(2)
-        submitted = left.form_submit_button("Save", type="primary", icon=":material/save:", use_container_width=True)
-        cancelled = right.form_submit_button("Cancel", icon=":material/close:", use_container_width=True)
+        submitted = left.form_submit_button("Save", type="primary", icon=":material/save:", width="stretch")
+        cancelled = right.form_submit_button("Cancel", icon=":material/close:", width="stretch")
 
     if cancelled:
         st.rerun()
@@ -165,6 +166,7 @@ def render_rename_dashboard_dialog(dashboard_name: str) -> None:
         except ValueError as exc:
             st.error(str(exc))
             return
+        st.session_state["selected_dashboard_id"] = dashboard["id"]
         st.session_state["selected_dashboard_name"] = dashboard["name"]
         st.success("Dashboard renamed.")
         st.rerun()
@@ -227,7 +229,7 @@ def render_dashboard_dialog(dashboard_name: str | None = None, card_id: str | No
 
     columns_key = f"{key_prefix}_columns"
     error_key = f"{key_prefix}_field_error"
-    if st.button("Load fields", icon=":material/view_column:", use_container_width=True):
+    if st.button("Load fields", icon=":material/view_column:", width="stretch"):
         source = get_source(source_id)
         if not source:
             st.error("Source not found.")
@@ -261,8 +263,8 @@ def render_dashboard_dialog(dashboard_name: str | None = None, card_id: str | No
         else current_config
     )
     left, right = st.columns(2)
-    submitted = left.button(dialog_mode, icon=":material/add_chart:", use_container_width=True)
-    cancelled = right.button("Cancel", icon=":material/close:", use_container_width=True)
+    submitted = left.button(dialog_mode, icon=":material/add_chart:", width="stretch")
+    cancelled = right.button("Cancel", icon=":material/close:", width="stretch")
 
     if cancelled:
         st.rerun()
@@ -303,7 +305,7 @@ def render_d1_card_table_picker(source: dict[str, Any], sql_key: str, key_prefix
     tables_key = f"{key_prefix}_d1_tables_{source['id']}"
     error_key = f"{key_prefix}_d1_tables_error_{source['id']}"
 
-    if st.button("Load D1 tables", icon=":material/table_rows:", use_container_width=True):
+    if st.button("Load D1 tables", icon=":material/table_rows:", width="stretch"):
         try:
             st.session_state[tables_key] = list_source_tables(source)
             st.session_state.pop(error_key, None)
@@ -319,7 +321,7 @@ def render_d1_card_table_picker(source: dict[str, Any], sql_key: str, key_prefix
         return
 
     selected_table = st.selectbox("D1 table", tables, key=f"{key_prefix}_d1_table_{source['id']}")
-    if st.button("Use selected table query", icon=":material/bolt:", use_container_width=True):
+    if st.button("Use selected table query", icon=":material/bolt:", width="stretch"):
         st.session_state[sql_key] = build_table_sql(selected_table, 200)
         st.session_state.pop(f"{key_prefix}_columns", None)
         st.session_state.pop(f"{key_prefix}_field_error", None)

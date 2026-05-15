@@ -373,6 +373,15 @@ def page_title(title: str, icon_name: str) -> None:
 
 def action_link(label: str, icon_name: str, action: str, item_type: str, item_id: str, class_name: str) -> str:
     href = "?" + urlencode({"action": action, "item_type": item_type, "item_id": item_id})
+    return render_link(label, icon_name, href, class_name)
+
+
+def route_link(label: str, icon_name: str, route: str, class_name: str) -> str:
+    href = "?" + urlencode({"route": route.strip("/")})
+    return render_link(label, icon_name, href, class_name)
+
+
+def render_link(label: str, icon_name: str, href: str, class_name: str) -> str:
     return (
         f"<a class='action-link {escape(class_name)}' href='{escape(href)}' target='_self'>"
         f"{material_icon(icon_name)}<span>{escape(label)}</span></a>"

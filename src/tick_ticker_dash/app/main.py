@@ -17,6 +17,7 @@ def main() -> None:
     st.session_state.setdefault("page", "Dashboard")
     st.session_state.setdefault("selected_source_id", None)
     st.session_state.setdefault("selected_view_id", None)
+    st.session_state.setdefault("selected_dashboard_id", None)
     st.session_state.setdefault("selected_dashboard_name", None)
     st.session_state.setdefault("data_cache", {})
     apply_route_from_url()

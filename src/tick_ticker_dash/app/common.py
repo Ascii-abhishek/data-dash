@@ -170,4 +170,4 @@ def render_dataframe(df: pl.DataFrame, key_prefix: str) -> None:
     if df.is_empty():
         st.caption("No rows returned.")
         return
-    st.dataframe(df, use_container_width=True, hide_index=True, key=key_prefix)
+    st.dataframe(df, width="stretch", hide_index=True, key=key_prefix)

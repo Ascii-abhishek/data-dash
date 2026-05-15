@@ -8,7 +8,7 @@ from tick_ticker_dash.app.common import cached_sql, clear_data_cache, render_cac
 from tick_ticker_dash.app.controls import render_control_panel
 from tick_ticker_dash.app.dialogs import render_create_dashboard_dialog, render_dashboard_dialog, render_rename_dashboard_dialog
 from tick_ticker_dash.app.graphs import render_result
-from tick_ticker_dash.app.styles import action_link, page_title
+from tick_ticker_dash.app.styles import action_link, page_title, route_link
 from tick_ticker_dash.storage.local_store import (
     delete_dashboard_card,
     get_source,
@@ -28,10 +28,19 @@ def render_dashboard_page() -> None:
         render_empty_state("Add a dashboard to start building your market workspace.")
         return
 
-    selected_name = st.session_state.get("selected_dashboard_name")
-    if not selected_name:
+    selected_id = st.session_state.get("selected_dashboard_id")
+    selected_dashboard = next((dashboard for dashboard in dashboards if dashboard["id"] == selected_id), None)
+    if selected_id and not selected_dashboard:
+        st.session_state["selected_dashboard_id"] = None
+        st.session_state["selected_dashboard_name"] = None
+        selected_id = None
+
+    if not selected_id:
         render_dashboard_index(cards, dashboards)
         return
+
+    selected_name = selected_dashboard["name"]
+    st.session_state["selected_dashboard_name"] = selected_name
 
     title_columns = st.columns([0.94, 0.06], vertical_alignment="center")
     with title_columns[0]:
@@ -43,7 +52,7 @@ def render_dashboard_page() -> None:
             key=f"rename_dashboard_{selected_name}",
             icon=":material/edit:",
             help=f"Rename {selected_name}",
-            use_container_width=True,
+            width="stretch",
         ):
             render_rename_dashboard_dialog(selected_name)
         st.markdown("</div>", unsafe_allow_html=True)
@@ -72,14 +81,14 @@ def render_dashboard_page() -> None:
         columns = st.columns(2)
         for column, card in zip(columns, dashboard_cards[row_start : row_start + 2], strict=False):
             with column.container(border=True):
-                header = st.columns([0.7, 0.15, 0.15], vertical_alignment="center")
+                header = st.columns([0.86, 0.07, 0.07], vertical_alignment="center")
                 header[0].markdown(f"#### {card['name']}")
                 if header[1].button(
                     "",
                     key=f"edit_card_{card['id']}",
                     icon=":material/edit:",
                     help=f"Edit {card['name']}",
-                    use_container_width=True,
+                    width="content",
                 ):
                     render_dashboard_dialog(selected_name, card["id"])
                 if header[2].button(
@@ -87,7 +96,7 @@ def render_dashboard_page() -> None:
                     key=f"delete_card_{card['id']}",
                     icon=":material/delete:",
                     help=f"Delete {card['name']}",
-                    use_container_width=True,
+                    width="content",
                 ):
                     delete_dashboard_card(card["id"])
                     clear_data_cache()
@@ -98,7 +107,7 @@ def render_dashboard_page() -> None:
 def render_dashboard_index(cards: list[dict[str, Any]], dashboards: list[dict[str, Any]]) -> None:
     page_title("Dashboards", "dashboard")
     top = st.columns([0.22, 0.78], vertical_alignment="bottom")
-    if top[0].button("Add dashboard", type="primary", icon=":material/add:", use_container_width=True):
+    if top[0].button("Add dashboard", type="primary", icon=":material/add:", width="stretch"):
         render_create_dashboard_dialog()
 
     if not dashboards:
@@ -113,7 +122,7 @@ def render_dashboard_index(cards: list[dict[str, Any]], dashboards: list[dict[st
             columns[0].markdown(f"#### {dashboard_name}")
             columns[0].caption(f"{card_count} cards")
             columns[1].markdown(
-                action_link("Open", "open_in_new", "open", "dashboard", dashboard["id"], "open"),
+                route_link("Open", "open_in_new", f"dashboard/{dashboard['id']}", "open"),
                 unsafe_allow_html=True,
             )
             dashboard_starred = is_favorite("dashboard", dashboard["id"])
