@@ -1,27 +1,33 @@
 from pathlib import Path
 
-from pydantic import model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class AppSettings(BaseSettings):
-    app_name: str = "Data Dash"
-    project_dir: Path = Path(".")
-    connections_dir: Path = Path("connections")
-    credentials_dir: Path = Path("credentials")
-    ui_dir: Path = Path("ui")
-    memory_dir: Path = Path("memory")
+    APP_NAME: str = Field("Data Dash", validation_alias=AliasChoices("TTD_APP_NAME", "APP_NAME"))
+    PROJECT_DIR: Path = Field(Path("."), validation_alias=AliasChoices("TTD_PROJECT_DIR", "PROJECT_DIR"))
+    CONNECTIONS_DIR: Path = Field(Path("connections"), validation_alias=AliasChoices("TTD_CONNECTIONS_DIR", "CONNECTIONS_DIR"))
+    CREDENTIALS_DIR: Path = Field(Path("credentials"), validation_alias=AliasChoices("TTD_CREDENTIALS_DIR", "CREDENTIALS_DIR"))
+    UI_DIR: Path = Field(Path("ui"), validation_alias=AliasChoices("TTD_UI_DIR", "UI_DIR"))
+    MEMORY_DIR: Path = Field(Path("memory"), validation_alias=AliasChoices("TTD_MEMORY_DIR", "MEMORY_DIR"))
+    LLM_PROVIDER: str = Field("groq", validation_alias=AliasChoices("TTD_LLM_PROVIDER", "LLM_PROVIDER"))
+    GROQ_API_KEY: str | None = Field(None, validation_alias=AliasChoices("TTD_GROQ_API_KEY", "GROQ_API_KEY"))
+    GROQ_MODEL: str = Field(
+        "llama-3.3-70b-versatile",
+        validation_alias=AliasChoices("TTD_GROQ_MODEL", "GROQ_MODEL"),
+    )
 
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="TTD_", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @model_validator(mode="after")
     def resolve_runtime_paths(self) -> "AppSettings":
-        project_dir = _resolve_project_dir(self.project_dir)
-        object.__setattr__(self, "project_dir", project_dir)
-        object.__setattr__(self, "connections_dir", _resolve_child_path(self.connections_dir, project_dir))
-        object.__setattr__(self, "credentials_dir", _resolve_child_path(self.credentials_dir, project_dir))
-        object.__setattr__(self, "ui_dir", _resolve_child_path(self.ui_dir, project_dir))
-        object.__setattr__(self, "memory_dir", _resolve_child_path(self.memory_dir, project_dir))
+        project_dir = _resolve_project_dir(self.PROJECT_DIR)
+        object.__setattr__(self, "PROJECT_DIR", project_dir)
+        object.__setattr__(self, "CONNECTIONS_DIR", _resolve_child_path(self.CONNECTIONS_DIR, project_dir))
+        object.__setattr__(self, "CREDENTIALS_DIR", _resolve_child_path(self.CREDENTIALS_DIR, project_dir))
+        object.__setattr__(self, "UI_DIR", _resolve_child_path(self.UI_DIR, project_dir))
+        object.__setattr__(self, "MEMORY_DIR", _resolve_child_path(self.MEMORY_DIR, project_dir))
         return self
 
 

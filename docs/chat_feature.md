@@ -35,7 +35,7 @@ This keeps responses contextual without sending an unbounded history. The contex
 
 ## Provider Design
 
-The first provider is Groq, using its OpenAI-compatible chat completions endpoint through `httpx`. The app reads `GROQ_API_KEY` from the environment or `.env`, and optionally `GROQ_MODEL`. This keeps the project free of a provider SDK dependency and leaves a small `call_llm()` boundary for adding other providers later.
+The first provider is Groq, using its OpenAI-compatible chat completions endpoint through `httpx`. The app reads `LLM_PROVIDER`, `GROQ_API_KEY`, and `GROQ_MODEL` through `AppSettings`, with `TTD_`-prefixed aliases also supported. This keeps the project free of a provider SDK dependency and leaves a small `call_llm()` boundary for adding other providers later.
 
 Default model:
 

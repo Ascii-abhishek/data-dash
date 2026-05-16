@@ -12,7 +12,7 @@ from tick_ticker_dash.config.settings import settings
 
 
 def main() -> None:
-    st.set_page_config(page_title=settings.app_name, page_icon="TT", layout="wide")
+    st.set_page_config(page_title=settings.APP_NAME, page_icon="TT", layout="wide")
     inject_css()
 
     st.session_state.setdefault("page", "Dashboard")

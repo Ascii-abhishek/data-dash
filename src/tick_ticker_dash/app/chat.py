@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from datetime import UTC, datetime
 from typing import Any
 
@@ -22,7 +21,6 @@ from tick_ticker_dash.storage.local_store import (
 MAX_CHAT_TURNS = 10
 MAX_CONTEXT_CHARS = 12000
 MAX_HISTORY_TURNS_SENT = 6
-DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile"
 
 
 def render_chat_panel() -> None:
@@ -89,7 +87,7 @@ def _handle_user_query(user_query: str) -> None:
             "llm": response,
             "created_at": now,
             "provider": "groq",
-            "model": _env_value("GROQ_MODEL") or DEFAULT_GROQ_MODEL,
+            "model": settings.GROQ_MODEL,
         }
     )
     write_chat_session(session)
@@ -138,26 +136,24 @@ def _bullets(items: Any) -> str:
 
 
 def call_llm(messages: list[dict[str, str]]) -> str:
-    provider = (_env_value("LLM_PROVIDER") or "groq").lower()
+    provider = settings.LLM_PROVIDER.lower()
     if provider != "groq":
         raise RuntimeError(f"Unsupported LLM provider: {provider}")
     return _call_groq(messages)
 
 
 def _call_groq(messages: list[dict[str, str]]) -> str:
-    api_key = _env_value("GROQ_API_KEY")
-    if not api_key:
+    if not settings.GROQ_API_KEY:
         raise RuntimeError("GROQ_API_KEY is missing. Add it to .env or the environment.")
 
-    model = _env_value("GROQ_MODEL") or DEFAULT_GROQ_MODEL
     response = httpx.post(
         "https://api.groq.com/openai/v1/chat/completions",
         headers={
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": f"Bearer {settings.GROQ_API_KEY}",
             "Content-Type": "application/json",
         },
         json={
-            "model": model,
+            "model": settings.GROQ_MODEL,
             "messages": messages,
             "temperature": 0.2,
             "max_completion_tokens": 1024,
@@ -184,20 +180,3 @@ def _bounded_json(payload: dict[str, Any], max_chars: int) -> str:
     if len(text) <= max_chars:
         return text
     return text[: max_chars - 200] + "\n... [context truncated to save tokens]"
-
-
-def _env_value(name: str) -> str | None:
-    value = os.getenv(name)
-    if value:
-        return value
-    env_path = settings.project_dir / ".env"
-    if not env_path.exists():
-        return None
-    for line in env_path.read_text().splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, raw_value = stripped.split("=", 1)
-        if key.strip() == name:
-            return raw_value.strip().strip('"').strip("'")
-    return None

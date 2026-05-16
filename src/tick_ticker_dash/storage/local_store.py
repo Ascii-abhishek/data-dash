@@ -9,15 +9,15 @@ from typing import Any
 
 from tick_ticker_dash.config.settings import settings
 
-SOURCES_FILE = settings.connections_dir / "sources.json"
-UI_STATE_DIR = settings.ui_dir
+SOURCES_FILE = settings.CONNECTIONS_DIR / "sources.json"
+UI_STATE_DIR = settings.UI_DIR
 DASHBOARDS_FILE = UI_STATE_DIR / "dashboards.json"
 VIEWS_FILE = UI_STATE_DIR / "views.json"
 QUERY_STATE_FILE = UI_STATE_DIR / "query_state.json"
 SOURCE_CATALOG_FILE = UI_STATE_DIR / "source_catalog.json"
-PROMPT_FILE = settings.memory_dir / "prompt.json"
-CONTEXT_FILE = settings.memory_dir / "context.json"
-SESSION_FILE = settings.memory_dir / "session.json"
+PROMPT_FILE = settings.MEMORY_DIR / "prompt.json"
+CONTEXT_FILE = settings.MEMORY_DIR / "context.json"
+SESSION_FILE = settings.MEMORY_DIR / "session.json"
 DEFAULT_PROMPT_VERSION = 2
 DEFAULT_PROMPT = {
     "version": DEFAULT_PROMPT_VERSION,
@@ -44,10 +44,10 @@ DEFAULT_PROMPT = {
 
 
 def ensure_storage() -> None:
-    settings.connections_dir.mkdir(parents=True, exist_ok=True)
-    settings.credentials_dir.mkdir(parents=True, exist_ok=True)
+    settings.CONNECTIONS_DIR.mkdir(parents=True, exist_ok=True)
+    settings.CREDENTIALS_DIR.mkdir(parents=True, exist_ok=True)
     UI_STATE_DIR.mkdir(parents=True, exist_ok=True)
-    settings.memory_dir.mkdir(parents=True, exist_ok=True)
+    settings.MEMORY_DIR.mkdir(parents=True, exist_ok=True)
     if not SOURCES_FILE.exists():
         write_json(SOURCES_FILE, [])
     if not DASHBOARDS_FILE.exists():
@@ -180,7 +180,7 @@ def save_source(name: str, source_type: str, metadata: dict[str, Any], credentia
     sources = list_sources()
     sources.append(source)
     write_json(SOURCES_FILE, sources)
-    write_json(settings.credentials_dir / source["credential_file"], credentials)
+    write_json(settings.CREDENTIALS_DIR / source["credential_file"], credentials)
     return source
 
 
@@ -207,7 +207,7 @@ def update_source(
     )
     source.setdefault("credential_file", f"{source_id}.json")
     write_json(SOURCES_FILE, sources)
-    write_json(settings.credentials_dir / source["credential_file"], credentials)
+    write_json(settings.CREDENTIALS_DIR / source["credential_file"], credentials)
     return source
 
 
@@ -218,7 +218,7 @@ def delete_source(source_id: str) -> None:
     write_json(SOURCES_FILE, [item for item in sources if item["id"] != source_id])
 
     if source and source.get("credential_file"):
-        credential_path = settings.credentials_dir / source["credential_file"]
+        credential_path = settings.CREDENTIALS_DIR / source["credential_file"]
         if credential_path.exists():
             credential_path.unlink()
 
@@ -231,7 +231,7 @@ def delete_source(source_id: str) -> None:
 
 
 def read_credentials(source: dict[str, Any]) -> dict[str, Any]:
-    return read_json(settings.credentials_dir / source["credential_file"], {})
+    return read_json(settings.CREDENTIALS_DIR / source["credential_file"], {})
 
 
 def _dashboard_state() -> dict[str, list[dict[str, Any]]]:

@@ -11,7 +11,7 @@ from tick_ticker_dash.storage.local_store import list_favorites, list_sources
 
 def render_sidebar() -> None:
     with st.sidebar:
-        st.markdown(f"<div class='sidebar-brand'>{settings.app_name}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='sidebar-brand'>{settings.APP_NAME}</div>", unsafe_allow_html=True)
         sources = list_sources()
         favorites = list_favorites()
         render_catalog_refresh_worker()
