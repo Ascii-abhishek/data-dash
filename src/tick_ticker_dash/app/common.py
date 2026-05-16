@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import hashlib
 import json
+import re
 import time
 from typing import Any
 
 import polars as pl
 import streamlit as st
 
-from tick_ticker_dash.connections.registry import execute_cross_source_sql, execute_source_sql, preview_source
+from tick_ticker_dash.connections.registry import execute_source_sql, preview_source
 from tick_ticker_dash.storage.local_store import get_source
 
 
@@ -91,9 +91,17 @@ def default_sql_for_source(source_id: str) -> str:
 
 def build_table_sql(table_name: str, limit: int = 200, where_clause: str = "") -> str:
     table_ref = quote_sql_identifier(table_name)
+    where_clause = normalize_where_clause(where_clause)
     if where_clause:
         return f"SELECT * FROM {table_ref} WHERE {where_clause} LIMIT {limit}"
     return f"SELECT * FROM {table_ref} LIMIT {limit}"
+
+
+def normalize_where_clause(where_clause: str | None) -> str:
+    clause = str(where_clause or "").strip().rstrip(";").strip()
+    if clause.lower().startswith("where "):
+        clause = clause[6:].strip()
+    return clause
 
 
 def quote_sql_identifier(identifier: str) -> str:
@@ -114,21 +122,21 @@ def cache_key(kind: str, source: dict[str, Any], *parts: Any) -> str:
     return json.dumps(payload, sort_keys=True, default=str)
 
 
-def get_from_cache(key: str, ttl_seconds: int | None) -> tuple[pl.DataFrame | None, float | None, bool]:
+def get_from_cache(key: str, ttl_seconds: int | None) -> tuple[pl.DataFrame | None, float | None, bool, float | None]:
     item = st.session_state["data_cache"].get(key)
     if not item:
-        return None, None, False
+        return None, None, False, None
     cached_at = float(item["cached_at"])
     if ttl_seconds is not None and time.time() - cached_at > ttl_seconds:
         st.session_state["data_cache"].pop(key, None)
-        return None, None, False
-    return item["df"], cached_at, True
+        return None, None, False, None
+    return item["df"], cached_at, True, float(item.get("duration_seconds") or 0)
 
 
-def put_in_cache(key: str, df: pl.DataFrame) -> tuple[pl.DataFrame, float, bool]:
+def put_in_cache(key: str, df: pl.DataFrame, duration_seconds: float) -> tuple[pl.DataFrame, float, bool, float]:
     cached_at = time.time()
-    st.session_state["data_cache"][key] = {"df": df, "cached_at": cached_at}
-    return df, cached_at, False
+    st.session_state["data_cache"][key] = {"df": df, "cached_at": cached_at, "duration_seconds": duration_seconds}
+    return df, cached_at, False, duration_seconds
 
 
 def cached_preview(
@@ -136,37 +144,35 @@ def cached_preview(
     limit: int,
     where_clause: str,
     ttl_seconds: int,
-) -> tuple[pl.DataFrame, float, bool]:
+) -> tuple[pl.DataFrame, float, bool, float | None]:
     key = cache_key("preview", source, limit, where_clause)
-    cached, cached_at, from_cache = get_from_cache(key, ttl_seconds)
+    cached, cached_at, from_cache, duration_seconds = get_from_cache(key, ttl_seconds)
     if cached is not None and cached_at is not None:
-        return cached, cached_at, from_cache
-    return put_in_cache(key, preview_source(source, limit, where_clause or None))
+        return cached, cached_at, from_cache, duration_seconds
+    start = time.perf_counter()
+    df = preview_source(source, limit, where_clause or None)
+    return put_in_cache(key, df, time.perf_counter() - start)
 
 
-def cached_sql(source: dict[str, Any], sql: str, ttl_seconds: int | None) -> tuple[pl.DataFrame, float, bool]:
+def cached_sql(source: dict[str, Any], sql: str, ttl_seconds: int | None) -> tuple[pl.DataFrame, float, bool, float | None]:
     key = cache_key("sql", source, sql)
-    cached, cached_at, from_cache = get_from_cache(key, ttl_seconds)
+    cached, cached_at, from_cache, duration_seconds = get_from_cache(key, ttl_seconds)
     if cached is not None and cached_at is not None:
-        return cached, cached_at, from_cache
-    return put_in_cache(key, execute_source_sql(source, sql))
+        return cached, cached_at, from_cache, duration_seconds
+    start = time.perf_counter()
+    df = execute_source_sql(source, sql)
+    return put_in_cache(key, df, time.perf_counter() - start)
 
 
-def cached_cross_source_sql(sources: list[dict[str, Any]], sql: str, ttl_seconds: int | None) -> tuple[pl.DataFrame, float, bool]:
-    source_versions = [
-        {
-            "id": source["id"],
-            "type": source.get("type"),
-            "updated_at": source.get("updated_at"),
-        }
-        for source in sources
-    ]
-    digest = hashlib.sha256(json.dumps(source_versions, sort_keys=True, default=str).encode()).hexdigest()
-    key = json.dumps({"kind": "cross_sql", "sources": digest, "parts": [sql]}, sort_keys=True)
-    cached, cached_at, from_cache = get_from_cache(key, ttl_seconds)
-    if cached is not None and cached_at is not None:
-        return cached, cached_at, from_cache
-    return put_in_cache(key, execute_cross_source_sql(sources, sql))
+def cap_select_sql(sql: str, limit: int) -> tuple[str, bool]:
+    statement = sql.strip().rstrip(";").strip()
+    if not statement:
+        return statement, False
+    if not re.match(r"^(select|with)\b", statement, flags=re.IGNORECASE):
+        return statement, False
+    if re.search(r"\blimit\b", statement, flags=re.IGNORECASE):
+        return statement, False
+    return f"{statement} LIMIT {limit}", True
 
 
 def clear_data_cache(source_id: str | None = None) -> None:
@@ -178,10 +184,11 @@ def clear_data_cache(source_id: str | None = None) -> None:
     }
 
 
-def render_cache_status(cached_at: float, from_cache: bool) -> None:
+def render_cache_status(cached_at: float, from_cache: bool, duration_seconds: float | None = None) -> None:
     age = max(int(time.time() - cached_at), 0)
     label = "Loaded from cache" if from_cache else "Loaded fresh"
-    st.caption(f"{label} {age}s ago.")
+    duration = f" Fetch took {duration_seconds:.2f}s." if duration_seconds is not None and not from_cache else ""
+    st.caption(f"{label} {age}s ago.{duration}")
 
 
 def render_dataframe(df: pl.DataFrame, key_prefix: str, height: int | None = None) -> None:

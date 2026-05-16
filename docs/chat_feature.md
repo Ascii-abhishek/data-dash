@@ -28,9 +28,9 @@ This keeps responses contextual without sending an unbounded history. The contex
 
 `prompt.json` includes SQL rules for the app's execution formats:
 
-- R2 single-source previews use `data`; cross-source R2 queries use the source alias from context.
+- The Query Tool runs against one selected source at a time.
+- R2 source queries can use `data`.
 - D1 single-source queries use the real table name.
-- Cross-source D1 queries use `source_alias__table_name`.
 - Generated exploratory SQL should be read-only and include a `LIMIT` unless the user asks otherwise.
 
 ## Provider Design

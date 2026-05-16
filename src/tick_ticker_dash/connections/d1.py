@@ -129,6 +129,7 @@ def preview(
 ) -> pl.DataFrame:
     query = source["metadata"].get("default_query") or "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name"
     base_query = query.rstrip(";")
+    where_clause = _normalize_where_clause(where_clause)
     if where_clause:
         base_query = f"SELECT * FROM ({base_query}) WHERE {where_clause}"
     limited_query = base_query if "limit" in base_query.lower() else f"{base_query} LIMIT {limit}"
@@ -137,3 +138,10 @@ def preview(
 
 def _quote_sql_string(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
+
+
+def _normalize_where_clause(where_clause: str | None) -> str:
+    clause = str(where_clause or "").strip().rstrip(";").strip()
+    if clause.lower().startswith("where "):
+        clause = clause[6:].strip()
+    return clause

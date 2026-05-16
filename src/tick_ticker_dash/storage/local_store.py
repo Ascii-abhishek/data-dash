@@ -27,10 +27,9 @@ DEFAULT_PROMPT = {
         "If a requested table, column, source, or date range is not available in context, say so and suggest the nearest valid option."
     ),
     "sql_rules": [
-        "The app uses SQL against one selected source or a Polars SQLContext for cross-source queries.",
+        "The Query Tool runs SQL against one selected source at a time.",
         "For Cloudflare R2 sources, query the source alias shown in context; single-source R2 previews also support the table name data.",
         "For Cloudflare D1 sources, use the real D1 table name for single-source D1 queries.",
-        "For cross-source queries, use the alias field from context. D1 aliases are source_alias__table_name. R2 aliases are source aliases.",
         "Always quote identifiers with double quotes when they contain spaces, punctuation, mixed case that must be preserved, or start with a number.",
         "Prefer SELECT statements. Avoid destructive SQL such as DROP, DELETE, UPDATE, INSERT, ALTER, or TRUNCATE.",
         "Include a LIMIT for exploratory result queries unless the user explicitly asks for full output.",

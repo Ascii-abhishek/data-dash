@@ -21,7 +21,11 @@ from tick_ticker_dash.app.graphs import (
 from tick_ticker_dash.app.styles import material_icon
 from tick_ticker_dash.config.source_schemas import SOURCE_TYPES, source_type_options
 from tick_ticker_dash.connections import r2
-from tick_ticker_dash.connections.registry import execute_source_sql, list_source_tables, test_source_connection
+from tick_ticker_dash.connections.registry import (
+    list_source_tables,
+    source_sql_columns,
+    test_source_connection,
+)
 from tick_ticker_dash.storage.local_store import (
     delete_source,
     get_dashboard_card,
@@ -235,11 +239,10 @@ def render_dashboard_dialog(dashboard_name: str | None = None, card_id: str | No
             st.error("Source not found.")
         else:
             try:
-                df = execute_source_sql(source, sql)
                 st.session_state[columns_key] = {
                     "source_id": source_id,
                     "sql": sql,
-                    "columns": df.columns,
+                    "columns": source_sql_columns(source, sql),
                 }
                 st.session_state.pop(error_key, None)
             except Exception as exc:
@@ -263,7 +266,17 @@ def render_dashboard_dialog(dashboard_name: str | None = None, card_id: str | No
         else current_config
     )
     left, right = st.columns(2)
-    submitted = left.button(dialog_mode, icon=":material/add_chart:", width="stretch")
+    fields_required = (
+        card_type != "table"
+        and not columns
+        and not (existing and current_config and existing.get("source_id") == source_id and existing.get("sql") == sql)
+    )
+    submitted = left.button(
+        dialog_mode,
+        icon=":material/add_chart:",
+        width="stretch",
+        disabled=fields_required,
+    )
     cancelled = right.button("Cancel", icon=":material/close:", width="stretch")
 
     if cancelled:

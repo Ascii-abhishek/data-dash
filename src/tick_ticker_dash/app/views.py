@@ -7,14 +7,15 @@ import streamlit as st
 
 from tick_ticker_dash.app.common import (
     cached_preview,
-    cached_cross_source_sql,
     cached_sql,
     build_table_sql,
+    cap_select_sql,
     clear_data_cache,
     default_sql_for_source,
     render_cache_status,
     render_dataframe,
     render_empty_state,
+    normalize_where_clause,
     source_display_name,
     source_name,
     source_type_icon,
@@ -25,7 +26,6 @@ from tick_ticker_dash.app.source_navigation import SourceNode, breadcrumbs_for_n
 from tick_ticker_dash.app.source_catalog import refresh_stale_catalogs, source_tables_from_catalog
 from tick_ticker_dash.app.state import open_favorite
 from tick_ticker_dash.app.styles import action_link, page_title
-from tick_ticker_dash.connections.registry import source_table_alias
 from tick_ticker_dash.storage.local_store import (
     get_saved_view,
     get_source,
@@ -40,7 +40,7 @@ from tick_ticker_dash.storage.local_store import (
 )
 
 
-CROSS_SOURCE_ID = "__all_sources__"
+QUERY_TOOL_ROW_LIMIT = 5000
 
 
 def render_views_page() -> None:
@@ -120,7 +120,7 @@ def render_data_source_view(source: dict[str, Any]) -> None:
         int(controls["limit"]),
         bool(controls["auto_refresh"]),
         int(controls["refresh_seconds"]),
-        where_clause.strip(),
+        normalize_where_clause(where_clause),
     )
 
 
@@ -301,8 +301,8 @@ def render_saved_view(view_id: str) -> None:
 def _render_saved_view_body(source: dict[str, Any], view: dict[str, Any], refresh_seconds: int) -> None:
     try:
         with st.spinner("Loading market data..."):
-            df, cached_at, from_cache = cached_sql(source, view["sql"], refresh_seconds)
-        render_cache_status(cached_at, from_cache)
+            df, cached_at, from_cache, duration_seconds = cached_sql(source, view["sql"], refresh_seconds)
+        render_cache_status(cached_at, from_cache, duration_seconds)
         render_dataframe(df, "saved_view_result")
     except Exception as exc:
         st.error(str(exc))
@@ -346,19 +346,17 @@ def render_query_tool_page() -> None:
         return
 
     source_ids = [source["id"] for source in sources]
-    query_source_ids = [CROSS_SOURCE_ID, *source_ids]
     selected_id = st.session_state.get("selected_source_id")
-    selected_query_source_id = selected_id if selected_id in source_ids else CROSS_SOURCE_ID
-    if st.session_state.get("query_tool_source_id") not in query_source_ids:
+    selected_query_source_id = selected_id if selected_id in source_ids else source_ids[0]
+    if st.session_state.get("query_tool_source_id") not in source_ids:
         st.session_state["query_tool_source_id"] = selected_query_source_id
-    source_id = st.selectbox("Data source", query_source_ids, format_func=_query_source_name, key="query_tool_source_id")
-    if source_id != CROSS_SOURCE_ID:
-        st.session_state["selected_source_id"] = source_id
+    source_id = st.selectbox("Data source", source_ids, format_func=source_name, key="query_tool_source_id")
+    st.session_state["selected_source_id"] = source_id
 
     persisted_state = read_query_state()
     sql_key = f"query_tool_sql_{source_id}"
     if sql_key not in st.session_state:
-        st.session_state[sql_key] = persisted_state.get("drafts", {}).get(source_id) or _default_query_tool_sql(source_id, sources)
+        st.session_state[sql_key] = persisted_state.get("drafts", {}).get(source_id) or default_sql_for_source(source_id)
     sql = st.text_area(
         "SQL",
         height=180,
@@ -382,16 +380,10 @@ def render_query_tool_page() -> None:
     auto_refresh = bool(actions["auto_refresh"])
     refresh_seconds = int(actions["refresh_seconds"])
 
-    if source_id == CROSS_SOURCE_ID:
-        _render_cross_source_catalog(sources)
-
-    if save_result and source_id == CROSS_SOURCE_ID:
-        st.session_state["show_save_view"] = False
-        st.warning("Cross-source results can be run here, but saved views still need a single source.")
-    elif save_result:
+    if save_result:
         st.session_state["show_save_view"] = True
 
-    if st.session_state.get("show_save_view") and source_id != CROSS_SOURCE_ID:
+    if st.session_state.get("show_save_view"):
         with st.form("save_view_form"):
             view_name = st.text_input("View name", placeholder="Filtered futures")
             submitted = st.form_submit_button("Save view", icon=":material/save:")
@@ -441,31 +433,18 @@ def _render_auto_query_result(source_id: str, sql: str, refresh_seconds: int) ->
 
 
 def _render_query_result(source_id: str, sql: str, refresh_seconds: int) -> None:
-    if source_id == CROSS_SOURCE_ID:
-        _render_cross_source_query_result(sql, refresh_seconds)
-        return
-
     source = get_source(source_id)
     if not source:
         st.error("Source not found.")
         return
     try:
+        execution_sql, was_capped = cap_select_sql(sql, QUERY_TOOL_ROW_LIMIT)
         with st.spinner("Loading market data..."):
-            df, cached_at, from_cache = cached_sql(source, sql, refresh_seconds)
+            df, cached_at, from_cache, duration_seconds = cached_sql(source, execution_sql, refresh_seconds)
         _save_query_result(source_id, sql, df, cached_at)
-        render_cache_status(cached_at, from_cache)
-        render_dataframe(df, "query_result")
-    except Exception as exc:
-        st.error(str(exc))
-
-
-def _render_cross_source_query_result(sql: str, refresh_seconds: int) -> None:
-    sources = list_sources()
-    try:
-        with st.spinner("Loading market data..."):
-            df, cached_at, from_cache = cached_cross_source_sql(sources, sql, refresh_seconds)
-        _save_query_result(CROSS_SOURCE_ID, sql, df, cached_at)
-        render_cache_status(cached_at, from_cache)
+        render_cache_status(cached_at, from_cache, duration_seconds)
+        if was_capped:
+            st.caption(f"Result capped at {QUERY_TOOL_ROW_LIMIT:,} rows because the query did not include LIMIT.")
         render_dataframe(df, "query_result")
     except Exception as exc:
         st.error(str(exc))
@@ -498,34 +477,6 @@ def _save_query_result(source_id: str, sql: str, df: pl.DataFrame, cached_at: fl
         "truncated": df.height > len(rows),
     }
     write_query_state(state)
-
-
-def _query_source_name(source_id: str) -> str:
-    if source_id == CROSS_SOURCE_ID:
-        return "All sources"
-    return source_name(source_id)
-
-
-def _default_query_tool_sql(source_id: str, sources: list[dict[str, Any]]) -> str:
-    if source_id != CROSS_SOURCE_ID:
-        return default_sql_for_source(source_id)
-    aliases = [source_table_alias(source) for source in sources if source["type"] == "cloudflare_r2"]
-    first_alias = aliases[0] if aliases else source_table_alias(sources[0])
-    return f"SELECT * FROM {first_alias} LIMIT 200"
-
-
-def _render_cross_source_catalog(sources: list[dict[str, Any]]) -> None:
-    rows = []
-    for source in sources:
-        source_alias = source_table_alias(source)
-        if source["type"] == "cloudflare_r2":
-            rows.append({"source": source["name"], "table": source_alias, "notes": "R2 file pattern"})
-        elif source["type"] == "cloudflare_d1":
-            rows.append({"source": source["name"], "table": f"{source_alias}__<d1_table>", "notes": "D1 table alias pattern"})
-
-    if rows:
-        with st.expander("Cross-source table names", expanded=False):
-            st.dataframe(pl.DataFrame(rows), width="stretch", hide_index=True, key="cross_source_catalog")
 
 
 def _selected_table_for_data_view(source: dict[str, Any]) -> str | None:
@@ -585,10 +536,10 @@ def _render_table_preview_body(
                     st.caption("Select a table to preview rows.")
                     return
                 sql = build_table_sql(table_name, limit, where_clause)
-                df, cached_at, from_cache = cached_sql(source, sql, refresh_seconds)
+                df, cached_at, from_cache, duration_seconds = cached_sql(source, sql, refresh_seconds)
             else:
-                df, cached_at, from_cache = cached_preview(source, limit, where_clause, refresh_seconds)
-        render_cache_status(cached_at, from_cache)
+                df, cached_at, from_cache, duration_seconds = cached_preview(source, limit, where_clause, refresh_seconds)
+        render_cache_status(cached_at, from_cache, duration_seconds)
         render_dataframe(df, "source_preview")
     except Exception as exc:
         st.error(str(exc))

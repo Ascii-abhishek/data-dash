@@ -172,8 +172,8 @@ def _render_dashboard_card_body(card: dict[str, Any], refresh_seconds: int | Non
         return
     try:
         with st.spinner("Loading market data..."):
-            df, cached_at, from_cache = cached_sql(source, card["sql"], refresh_seconds)
-        render_cache_status(cached_at, from_cache)
+            df, cached_at, from_cache, duration_seconds = cached_sql(source, card["sql"], refresh_seconds)
+        render_cache_status(cached_at, from_cache, duration_seconds)
         render_result(df, card.get("type", "table"), f"card_{card['id']}", card.get("chart_config", {}), context="dashboard")
     except Exception as exc:
         st.error(str(exc))
