@@ -101,7 +101,7 @@ def build_llm_messages(user_query: str, session: list[dict[str, Any]]) -> list[d
     context["source_catalog"] = catalog_for_prompt()
     write_context_memory(context)
 
-    system_prompt = str(prompt.get("system") or "You are a helpful data assistant.")
+    system_prompt = _prompt_text(prompt)
     context_text = _bounded_json(context, MAX_CONTEXT_CHARS)
     messages = [
         {"role": "system", "content": system_prompt},
@@ -118,6 +118,23 @@ def build_llm_messages(user_query: str, session: list[dict[str, Any]]) -> list[d
 
     messages.append({"role": "user", "content": user_query})
     return messages
+
+
+def _prompt_text(prompt: dict[str, Any]) -> str:
+    parts = [str(prompt.get("system") or "You are a helpful data assistant.")]
+    if prompt.get("sql_rules"):
+        parts.append("SQL/query rules:\n" + _bullets(prompt["sql_rules"]))
+    if prompt.get("chart_rules"):
+        parts.append("Chart/dashboard rules:\n" + _bullets(prompt["chart_rules"]))
+    if prompt.get("legacy_system"):
+        parts.append("Legacy project instruction:\n" + str(prompt["legacy_system"]))
+    return "\n\n".join(parts)
+
+
+def _bullets(items: Any) -> str:
+    if not isinstance(items, list):
+        return str(items)
+    return "\n".join(f"- {item}" for item in items)
 
 
 def call_llm(messages: list[dict[str, str]]) -> str:

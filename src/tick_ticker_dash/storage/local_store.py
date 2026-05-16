@@ -18,6 +18,30 @@ SOURCE_CATALOG_FILE = UI_STATE_DIR / "source_catalog.json"
 PROMPT_FILE = settings.memory_dir / "prompt.json"
 CONTEXT_FILE = settings.memory_dir / "context.json"
 SESSION_FILE = settings.memory_dir / "session.json"
+DEFAULT_PROMPT_VERSION = 2
+DEFAULT_PROMPT = {
+    "version": DEFAULT_PROMPT_VERSION,
+    "system": (
+        "You are the AI data analyst inside Tick Ticker Dash. Be concise, practical, and precise. "
+        "Use the supplied app memory, source catalog, table aliases, schemas, and recent chat history. "
+        "If a requested table, column, source, or date range is not available in context, say so and suggest the nearest valid option."
+    ),
+    "sql_rules": [
+        "The app uses SQL against one selected source or a Polars SQLContext for cross-source queries.",
+        "For Cloudflare R2 sources, query the source alias shown in context; single-source R2 previews also support the table name data.",
+        "For Cloudflare D1 sources, use the real D1 table name for single-source D1 queries.",
+        "For cross-source queries, use the alias field from context. D1 aliases are source_alias__table_name. R2 aliases are source aliases.",
+        "Always quote identifiers with double quotes when they contain spaces, punctuation, mixed case that must be preserved, or start with a number.",
+        "Prefer SELECT statements. Avoid destructive SQL such as DROP, DELETE, UPDATE, INSERT, ALTER, or TRUNCATE.",
+        "Include a LIMIT for exploratory result queries unless the user explicitly asks for full output.",
+        "Use ISO date strings for filters when possible.",
+    ],
+    "chart_rules": [
+        "For candle charts, the result should include x/time, open, high, low, close, and optionally volume/open_interest as the lower bar field.",
+        "For line, area, bar, and scatter charts, identify clear x and y columns and optional color/size columns.",
+        "When proposing a dashboard card, include the SQL and the chart field mapping.",
+    ],
+}
 
 
 def ensure_storage() -> None:
@@ -35,20 +59,28 @@ def ensure_storage() -> None:
         write_json(QUERY_STATE_FILE, {})
     if not SOURCE_CATALOG_FILE.exists():
         write_json(SOURCE_CATALOG_FILE, {})
-    if not PROMPT_FILE.exists():
-        write_json(
-            PROMPT_FILE,
-            {
-                "system": (
-                    "You are a concise data analyst for Tick Ticker Dash. Use the supplied source catalog, "
-                    "schema context, and recent chat history to answer. Be clear when data is unavailable."
-                )
-            },
-        )
+    _ensure_prompt_file()
     if not CONTEXT_FILE.exists():
         write_json(CONTEXT_FILE, {"notes": [], "source_catalog": {}})
     if not SESSION_FILE.exists():
         write_json(SESSION_FILE, [])
+
+
+def _ensure_prompt_file() -> None:
+    if not PROMPT_FILE.exists():
+        write_json(PROMPT_FILE, DEFAULT_PROMPT)
+        return
+    prompt = read_json(PROMPT_FILE, {})
+    if not isinstance(prompt, dict):
+        write_json(PROMPT_FILE, DEFAULT_PROMPT)
+        return
+    if prompt.get("version") == DEFAULT_PROMPT_VERSION:
+        return
+    if set(prompt.keys()).issubset({"system"}):
+        upgraded = dict(DEFAULT_PROMPT)
+        if prompt.get("system"):
+            upgraded["legacy_system"] = prompt["system"]
+        write_json(PROMPT_FILE, upgraded)
 
 
 def read_json(path: Path, default: Any) -> Any:

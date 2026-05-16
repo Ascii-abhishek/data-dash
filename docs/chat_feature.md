@@ -24,6 +24,15 @@ The current implementation keeps one active session and limits it to 10 user cha
 
 This keeps responses contextual without sending an unbounded history. The context JSON is capped before sending to reduce token usage.
 
+`context.json` is refreshed automatically from the persisted source catalog whenever the chat prompt is built. Sources added in a previous app session still appear in chat context as long as they exist in `connections/sources.json` and the catalog can be read or refreshed.
+
+`prompt.json` includes SQL rules for the app's execution formats:
+
+- R2 single-source previews use `data`; cross-source R2 queries use the source alias from context.
+- D1 single-source queries use the real table name.
+- Cross-source D1 queries use `source_alias__table_name`.
+- Generated exploratory SQL should be read-only and include a `LIMIT` unless the user asks otherwise.
+
 ## Provider Design
 
 The first provider is Groq, using its OpenAI-compatible chat completions endpoint through `httpx`. The app reads `GROQ_API_KEY` from the environment or `.env`, and optionally `GROQ_MODEL`. This keeps the project free of a provider SDK dependency and leaves a small `call_llm()` boundary for adding other providers later.
