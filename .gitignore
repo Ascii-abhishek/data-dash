@@ -16,3 +16,4 @@ src/*.egg-info/
 /credentials/
 /connections/
 /ui/
+/memory/

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import streamlit as st
 
-from tick_ticker_dash.app.common import source_display_name, source_type_icon
 from tick_ticker_dash.app.dialogs import render_source_dialog
+from tick_ticker_dash.app.source_catalog import render_catalog_refresh_worker
 from tick_ticker_dash.app.state import open_favorite
 from tick_ticker_dash.config.settings import settings
 from tick_ticker_dash.storage.local_store import list_favorites, list_sources
@@ -14,6 +14,7 @@ def render_sidebar() -> None:
         st.markdown(f"<div class='sidebar-brand'>{settings.app_name}</div>", unsafe_allow_html=True)
         sources = list_sources()
         favorites = list_favorites()
+        render_catalog_refresh_worker()
 
         st.markdown("<div class='sidebar-section'>", unsafe_allow_html=True)
         st.markdown("<div class='section-label'>Home</div>", unsafe_allow_html=True)
@@ -31,6 +32,8 @@ def render_sidebar() -> None:
             st.session_state["page"] = "Query Tool"
             st.session_state["selected_dashboard_id"] = None
             st.session_state["selected_dashboard_name"] = None
+        if st.button("Chat with AI", key="nav_chat", icon=":material/chat:", width="stretch"):
+            st.session_state["chat_open"] = True
         st.markdown("</div>", unsafe_allow_html=True)
 
         if favorites:
@@ -53,32 +56,11 @@ def render_sidebar() -> None:
         st.markdown("<div class='section-label'>Sources</div>", unsafe_allow_html=True)
         if st.button("Add source", key="add_source", type="primary", icon=":material/add:", width="stretch"):
             render_source_dialog()
-
+        if st.button("All sources", key="all_sources", icon=":material/storage:", width="stretch"):
+            st.session_state["page"] = "Sources"
+            st.session_state["selected_source_id"] = None
+            st.session_state["selected_view_id"] = None
+            st.session_state["sources_browser_source_id"] = None
         if not sources:
             st.caption("No sources added yet.")
-        st.markdown("<div class='source-list'>", unsafe_allow_html=True)
-        for source in sources:
-            left, right = st.columns([0.78, 0.22], gap="small", vertical_alignment="center")
-            with left:
-                if st.button(
-                    source_display_name(source),
-                    key=f"source_{source['id']}",
-                    icon=source_type_icon(source),
-                    width="stretch",
-                ):
-                    st.session_state["selected_source_id"] = source["id"]
-                    st.session_state["selected_view_id"] = None
-                    st.session_state["page"] = "Views"
-            with right:
-                st.markdown("<div class='icon-only-button'>", unsafe_allow_html=True)
-                if st.button(
-                    "",
-                    key=f"edit_source_{source['id']}",
-                    icon=":material/edit:",
-                    help=f"Edit {source['name']}",
-                    width="stretch",
-                ):
-                    render_source_dialog(source["id"])
-                st.markdown("</div>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)

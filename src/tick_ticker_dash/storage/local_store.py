@@ -14,12 +14,17 @@ UI_STATE_DIR = settings.ui_dir
 DASHBOARDS_FILE = UI_STATE_DIR / "dashboards.json"
 VIEWS_FILE = UI_STATE_DIR / "views.json"
 QUERY_STATE_FILE = UI_STATE_DIR / "query_state.json"
+SOURCE_CATALOG_FILE = UI_STATE_DIR / "source_catalog.json"
+PROMPT_FILE = settings.memory_dir / "prompt.json"
+CONTEXT_FILE = settings.memory_dir / "context.json"
+SESSION_FILE = settings.memory_dir / "session.json"
 
 
 def ensure_storage() -> None:
     settings.connections_dir.mkdir(parents=True, exist_ok=True)
     settings.credentials_dir.mkdir(parents=True, exist_ok=True)
     UI_STATE_DIR.mkdir(parents=True, exist_ok=True)
+    settings.memory_dir.mkdir(parents=True, exist_ok=True)
     if not SOURCES_FILE.exists():
         write_json(SOURCES_FILE, [])
     if not DASHBOARDS_FILE.exists():
@@ -28,6 +33,22 @@ def ensure_storage() -> None:
         write_json(VIEWS_FILE, [])
     if not QUERY_STATE_FILE.exists():
         write_json(QUERY_STATE_FILE, {})
+    if not SOURCE_CATALOG_FILE.exists():
+        write_json(SOURCE_CATALOG_FILE, {})
+    if not PROMPT_FILE.exists():
+        write_json(
+            PROMPT_FILE,
+            {
+                "system": (
+                    "You are a concise data analyst for Tick Ticker Dash. Use the supplied source catalog, "
+                    "schema context, and recent chat history to answer. Be clear when data is unavailable."
+                )
+            },
+        )
+    if not CONTEXT_FILE.exists():
+        write_json(CONTEXT_FILE, {"notes": [], "source_catalog": {}})
+    if not SESSION_FILE.exists():
+        write_json(SESSION_FILE, [])
 
 
 def read_json(path: Path, default: Any) -> Any:
@@ -53,6 +74,45 @@ def read_query_state() -> dict[str, Any]:
 def write_query_state(state: dict[str, Any]) -> None:
     ensure_storage()
     write_json(QUERY_STATE_FILE, state)
+
+
+def read_source_catalog() -> dict[str, Any]:
+    ensure_storage()
+    catalog = read_json(SOURCE_CATALOG_FILE, {})
+    return catalog if isinstance(catalog, dict) else {}
+
+
+def write_source_catalog(catalog: dict[str, Any]) -> None:
+    ensure_storage()
+    write_json(SOURCE_CATALOG_FILE, catalog)
+
+
+def read_prompt_memory() -> dict[str, Any]:
+    ensure_storage()
+    prompt = read_json(PROMPT_FILE, {})
+    return prompt if isinstance(prompt, dict) else {}
+
+
+def read_context_memory() -> dict[str, Any]:
+    ensure_storage()
+    context = read_json(CONTEXT_FILE, {})
+    return context if isinstance(context, dict) else {}
+
+
+def write_context_memory(context: dict[str, Any]) -> None:
+    ensure_storage()
+    write_json(CONTEXT_FILE, context)
+
+
+def read_chat_session() -> list[dict[str, Any]]:
+    ensure_storage()
+    session = read_json(SESSION_FILE, [])
+    return session if isinstance(session, list) else []
+
+
+def write_chat_session(session: list[dict[str, Any]]) -> None:
+    ensure_storage()
+    write_json(SESSION_FILE, session)
 
 
 def make_id(name: str) -> str:

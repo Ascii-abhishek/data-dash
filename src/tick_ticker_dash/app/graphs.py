@@ -21,6 +21,14 @@ CHART_TYPE_LABELS = {
     "pie": "Pie chart",
 }
 
+DASHBOARD_CHART_HEIGHT = 320
+DASHBOARD_CANDLE_PRICE_HEIGHT = 260
+DASHBOARD_CANDLE_LOWER_HEIGHT = 90
+DASHBOARD_TABLE_HEIGHT = 360
+DEFAULT_CHART_HEIGHT = 360
+DEFAULT_CANDLE_PRICE_HEIGHT = 420
+DEFAULT_CANDLE_LOWER_HEIGHT = 130
+
 
 def chart_type_options() -> list[str]:
     return list(CHART_TYPE_LABELS)
@@ -126,22 +134,36 @@ def validate_chart_config(card_type: str, config: dict[str, Any]) -> list[str]:
     return [field.replace("_", " ").title() for field in missing]
 
 
-def render_result(df: pl.DataFrame, card_type: str, key_prefix: str, config: dict[str, Any] | None = None) -> None:
+def render_result(
+    df: pl.DataFrame,
+    card_type: str,
+    key_prefix: str,
+    config: dict[str, Any] | None = None,
+    *,
+    context: str = "default",
+) -> None:
     if df.is_empty():
         st.caption("No rows returned.")
         return
 
     config = config or {}
     if card_type in NATIVE_CHART_TYPES:
-        st.altair_chart(_native_chart(df.to_pandas(), card_type, config), width="stretch", key=key_prefix)
+        st.altair_chart(_native_chart(df.to_pandas(), card_type, config, _chart_height(context)), width="stretch", key=key_prefix)
         return
     if card_type in CUSTOM_CHART_TYPES:
-        render_custom_chart(df, card_type, config, key_prefix)
+        render_custom_chart(df, card_type, config, key_prefix, context=context)
         return
-    render_dataframe(df, key_prefix)
+    render_dataframe(df, key_prefix, height=DASHBOARD_TABLE_HEIGHT if context == "dashboard" else None)
 
 
-def render_custom_chart(df: pl.DataFrame, card_type: str, config: dict[str, Any], key_prefix: str) -> None:
+def render_custom_chart(
+    df: pl.DataFrame,
+    card_type: str,
+    config: dict[str, Any],
+    key_prefix: str,
+    *,
+    context: str = "default",
+) -> None:
     missing = validate_chart_config(card_type, config)
     if missing:
         st.warning(f"Missing chart fields: {', '.join(missing)}.")
@@ -150,14 +172,14 @@ def render_custom_chart(df: pl.DataFrame, card_type: str, config: dict[str, Any]
 
     data = _prepare_chart_data(df.to_pandas(), config)
     if card_type == "candle":
-        st.altair_chart(_candlestick_chart(data, config), width="stretch", height="stretch", key=key_prefix)
+        st.altair_chart(_candlestick_chart(data, config, context), width="stretch", key=key_prefix)
     elif card_type == "histogram":
-        st.altair_chart(_histogram_chart(data, config), width="stretch", key=key_prefix)
+        st.altair_chart(_histogram_chart(data, config, _chart_height(context)), width="stretch", key=key_prefix)
     elif card_type == "pie":
-        st.altair_chart(_pie_chart(data, config), width="stretch", key=key_prefix)
+        st.altair_chart(_pie_chart(data, config, _chart_height(context)), width="stretch", key=key_prefix)
 
 
-def _candlestick_chart(data: Any, config: dict[str, Any]) -> alt.Chart:
+def _candlestick_chart(data: Any, config: dict[str, Any], context: str) -> alt.Chart:
     x = config["x"]
     open_column = config["open"]
     high_column = config["high"]
@@ -182,7 +204,7 @@ def _candlestick_chart(data: Any, config: dict[str, Any]) -> alt.Chart:
     rule = base.mark_rule().encode(y=alt.Y(f"{low_column}:Q", title="Price", scale=y_scale), y2=f"{high_column}:Q")
     candle_size = _candle_size(len(data))
     bar = base.mark_bar(size=candle_size).encode(y=f"{open_column}:Q", y2=f"{close_column}:Q")
-    price = (rule + bar).properties(height=560)
+    price = (rule + bar).properties(height=_candle_price_height(context))
     price = price.interactive(name="price_zoom", bind_x=True, bind_y=True)
     if not config.get("lower"):
         return price
@@ -195,7 +217,7 @@ def _candlestick_chart(data: Any, config: dict[str, Any]) -> alt.Chart:
             y=alt.Y(f"{config['lower']}:Q", title=config["lower"]),
             tooltip=tooltip,
         )
-        .properties(height=180)
+        .properties(height=_candle_lower_height(context))
     )
     return alt.vconcat(price, lower.interactive(name="volume_zoom", bind_x=False, bind_y=True)).resolve_scale(x="shared")
 
@@ -223,14 +245,26 @@ def _candle_size(row_count: int) -> int:
     return 8
 
 
-def _native_chart(data: Any, card_type: str, config: dict[str, Any]) -> alt.Chart:
+def _chart_height(context: str) -> int:
+    return DASHBOARD_CHART_HEIGHT if context == "dashboard" else DEFAULT_CHART_HEIGHT
+
+
+def _candle_price_height(context: str) -> int:
+    return DASHBOARD_CANDLE_PRICE_HEIGHT if context == "dashboard" else DEFAULT_CANDLE_PRICE_HEIGHT
+
+
+def _candle_lower_height(context: str) -> int:
+    return DASHBOARD_CANDLE_LOWER_HEIGHT if context == "dashboard" else DEFAULT_CANDLE_LOWER_HEIGHT
+
+
+def _native_chart(data: Any, card_type: str, config: dict[str, Any], height: int = DEFAULT_CHART_HEIGHT) -> alt.Chart:
     x = config.get("x")
     y = config.get("y")
     if not x or not y:
         return (
             alt.Chart(data)
             .mark_text(text="Select X and Y fields for this chart.")
-            .properties(height=260)
+            .properties(height=min(height, 260))
         )
 
     base = alt.Chart(data).encode(
@@ -242,20 +276,20 @@ def _native_chart(data: Any, card_type: str, config: dict[str, Any]) -> alt.Char
         base = base.encode(color=alt.Color(_typed_field(data, config["color"]), title=config["color"]))
 
     if card_type == "line":
-        return base.mark_line(point=True).properties(height=360).interactive()
+        return base.mark_line(point=True).properties(height=height).interactive()
     if card_type == "area":
-        return base.mark_area(opacity=0.72).properties(height=360).interactive()
+        return base.mark_area(opacity=0.72).properties(height=height).interactive()
     if card_type == "bar":
-        return base.mark_bar().properties(height=360).interactive()
+        return base.mark_bar().properties(height=height).interactive()
     if card_type == "scatter":
         chart = base
         if config.get("size"):
             chart = chart.encode(size=alt.Size(_typed_field(data, config["size"]), title=config["size"]))
-        return chart.mark_circle(size=72, opacity=0.78).properties(height=360).interactive()
-    return base.mark_point().properties(height=360).interactive()
+        return chart.mark_circle(size=72, opacity=0.78).properties(height=height).interactive()
+    return base.mark_point().properties(height=height).interactive()
 
 
-def _histogram_chart(data: Any, config: dict[str, Any]) -> alt.Chart:
+def _histogram_chart(data: Any, config: dict[str, Any], height: int = DEFAULT_CHART_HEIGHT) -> alt.Chart:
     x = config["x"]
     bins = int(config.get("bins") or 30)
     chart = alt.Chart(data).mark_bar().encode(
@@ -265,10 +299,10 @@ def _histogram_chart(data: Any, config: dict[str, Any]) -> alt.Chart:
     )
     if config.get("color"):
         chart = chart.encode(color=alt.Color(f"{config['color']}:N", title=config["color"]))
-    return chart.properties(height=360).interactive()
+    return chart.properties(height=height).interactive()
 
 
-def _pie_chart(data: Any, config: dict[str, Any]) -> alt.Chart:
+def _pie_chart(data: Any, config: dict[str, Any], height: int = DEFAULT_CHART_HEIGHT) -> alt.Chart:
     theta = config["theta"]
     color = config["color"]
     return (
@@ -279,7 +313,7 @@ def _pie_chart(data: Any, config: dict[str, Any]) -> alt.Chart:
             color=alt.Color(f"{color}:N", title=color),
             tooltip=[alt.Tooltip(f"{color}:N", title=color), alt.Tooltip(f"sum({theta}):Q", title=theta)],
         )
-        .properties(height=360)
+        .properties(height=height)
         .interactive()
     )
 

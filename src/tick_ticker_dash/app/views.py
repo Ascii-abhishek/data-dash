@@ -7,6 +7,7 @@ import streamlit as st
 
 from tick_ticker_dash.app.common import (
     cached_preview,
+    cached_cross_source_sql,
     cached_sql,
     build_table_sql,
     clear_data_cache,
@@ -14,13 +15,17 @@ from tick_ticker_dash.app.common import (
     render_cache_status,
     render_dataframe,
     render_empty_state,
+    source_display_name,
     source_name,
+    source_type_icon,
     source_type_icon_name,
 )
 from tick_ticker_dash.app.controls import render_control_panel
+from tick_ticker_dash.app.source_navigation import SourceNode, breadcrumbs_for_node, root_node, select_node, source_node, table_node
+from tick_ticker_dash.app.source_catalog import refresh_stale_catalogs, source_tables_from_catalog
 from tick_ticker_dash.app.state import open_favorite
 from tick_ticker_dash.app.styles import action_link, page_title
-from tick_ticker_dash.connections.registry import list_source_tables
+from tick_ticker_dash.connections.registry import source_table_alias
 from tick_ticker_dash.storage.local_store import (
     get_saved_view,
     get_source,
@@ -33,6 +38,9 @@ from tick_ticker_dash.storage.local_store import (
     toggle_favorite,
     write_query_state,
 )
+
+
+CROSS_SOURCE_ID = "__all_sources__"
 
 
 def render_views_page() -> None:
@@ -64,10 +72,24 @@ def render_views_page() -> None:
         return
 
     page_title(source["name"], source_type_icon_name(source))
-    if source["type"] == "cloudflare_d1":
-        render_d1_source_browser(source)
+    render_data_source_view(source)
+
+
+def render_data_source_view(source: dict[str, Any]) -> None:
+    table_name = _selected_table_for_data_view(source)
+    _render_data_view_breadcrumbs(source, table_name)
+    if source["type"] == "cloudflare_d1" and not table_name:
+        st.info("Select a table from All sources to preview this D1 source.")
+        if st.button("Open tables", icon=":material/table_rows:", width="stretch"):
+            st.session_state["page"] = "Sources"
+            st.session_state["sources_browser_source_id"] = source["id"]
+            st.rerun()
         return
 
+    if table_name and source["type"] == "cloudflare_d1":
+        st.markdown(f"<div class='section-label'>Table: {table_name}</div>", unsafe_allow_html=True)
+
+    default_refresh_seconds = max(int(source["metadata"].get("refresh_seconds", 60)), 5)
     controls = render_control_panel(
         "Preview controls",
         [
@@ -78,18 +100,23 @@ def render_views_page() -> None:
                 "kind": "number",
                 "label": "Interval (s)",
                 "min_value": 5,
-                "value": max(int(source["metadata"].get("refresh_seconds", 60)), 5),
+                "value": default_refresh_seconds,
                 "step": 5,
             },
             {"id": "refresh_now", "kind": "button", "label": "Refresh now", "icon": ":material/refresh:"},
         ],
-        key_prefix=f"source_preview_{source['id']}",
+        key_prefix=f"source_preview_{source['id']}_{table_name or 'data'}",
     )
     if controls["refresh_now"]:
         clear_data_cache(source["id"])
-    where_clause = st.text_input("WHERE condition", placeholder="<col_name> <operator> <value> (e.g. timestamp > '2024-01-01')")
-    render_source_preview(
+    where_clause = st.text_input(
+        "WHERE condition",
+        placeholder="<col_name> <operator> <value> (e.g. timestamp > '2024-01-01')",
+        key=f"source_preview_where_{source['id']}_{table_name or 'data'}",
+    )
+    render_table_preview(
         source,
+        table_name,
         int(controls["limit"]),
         bool(controls["auto_refresh"]),
         int(controls["refresh_seconds"]),
@@ -97,86 +124,100 @@ def render_views_page() -> None:
     )
 
 
-def render_d1_source_browser(source: dict[str, Any]) -> None:
-    tables_key = f"d1_tables_{source['id']}"
-    selected_key = f"d1_selected_table_{source['id']}"
+def _render_data_view_breadcrumbs(source: dict[str, Any], table_name: str | None) -> None:
+    current = (
+        SourceNode(label=table_name or "Select table", key=table_name or "select-table", kind="table", source_id=source["id"], table_name=table_name)
+        if source["type"] == "cloudflare_d1"
+        else source_node(source)
+    )
+    _render_breadcrumbs(breadcrumbs_for_node(current, source))
 
-    if st.button("Refresh tables", icon=":material/refresh:", width="stretch"):
-        st.session_state.pop(tables_key, None)
-        clear_data_cache(source["id"])
 
-    if tables_key not in st.session_state:
-        try:
-            with st.spinner("Loading D1 tables..."):
-                st.session_state[tables_key] = list_source_tables(source)
-        except Exception as exc:
-            st.error(str(exc))
-            return
+def _render_breadcrumbs(items: list[SourceNode]) -> None:
+    ratios: list[float] = []
+    for index, item in enumerate(items):
+        if index:
+            ratios.append(0.035)
+        ratios.append(min(max(len(item.label) * 0.012, 0.16), 0.34))
 
-    tables = st.session_state.get(tables_key, [])
-    if not tables:
-        render_empty_state("No tables found in this D1 database.")
-        return
+    columns = st.columns(ratios, gap="small", vertical_alignment="center")
+    column_index = 0
+    for index, item in enumerate(items):
+        if index:
+            columns[column_index].markdown("<div class='breadcrumb-separator'>/</div>", unsafe_allow_html=True)
+            column_index += 1
 
-    st.markdown("<div class='section-label'>Tables</div>", unsafe_allow_html=True)
-    st.markdown("<div class='d1-table-list'>", unsafe_allow_html=True)
-    with st.container(height=180, border=True):
-        for table_name in tables:
-            selected = st.session_state.get(selected_key) == table_name
-            if st.button(
-                table_name,
-                key=f"d1_table_{source['id']}_{table_name}",
-                type="primary" if selected else "secondary",
+        if index < len(items) - 1:
+            if columns[column_index].button(
+                item.label,
+                icon=item.icon,
+                key=f"breadcrumb_{item.kind}_{item.source_id or 'root'}_{item.key}",
                 width="stretch",
             ):
-                st.session_state[selected_key] = table_name
-                clear_data_cache(source["id"])
+                select_node(item)
+                st.rerun()
+        else:
+            columns[column_index].markdown(f"<div class='breadcrumb-current'>{item.label}</div>", unsafe_allow_html=True)
+        column_index += 1
+
+
+def render_sources_page() -> None:
+    page_title("Sources", "storage")
+    sources = list_sources()
+    if not sources:
+        render_empty_state("Add a source to browse its tables.")
+        return
+
+    catalog = refresh_stale_catalogs()
+    selected_source_id = st.session_state.get("sources_browser_source_id")
+    selected_source = get_source(selected_source_id) if selected_source_id else None
+
+    if selected_source:
+        _render_source_tables_grid(selected_source, catalog)
+        return
+
+    st.markdown("<div class='source-browser-grid'>", unsafe_allow_html=True)
+    columns = st.columns(3, gap="medium")
+    for index, source in enumerate(sources):
+        with columns[index % 3]:
+            table_count = len(source_tables_from_catalog(source, catalog))
+            label = f"{source_display_name(source)}\n\n{table_count or 1} table{'s' if (table_count or 1) != 1 else ''}"
+            if st.button(
+                label,
+                key=f"sources_grid_source_{source['id']}",
+                icon=source_type_icon(source),
+                width="stretch",
+            ):
+                select_node(source_node(source))
                 st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
-    selected_table = st.session_state.get(selected_key)
-    if selected_table not in tables:
-        st.caption("Select a table to preview its rows.")
+
+def _render_source_tables_grid(source: dict[str, Any], catalog: dict[str, Any]) -> None:
+    _render_breadcrumbs(breadcrumbs_for_node(source_node(source)))
+
+    tables = source_tables_from_catalog(source, catalog)
+    if not tables:
+        render_empty_state("No tables found for this source.")
         return
 
-    controls = render_control_panel(
-        "Preview controls",
-        [
-            {"id": "limit", "kind": "number", "label": "Rows", "min_value": 1, "max_value": 10000, "value": 200, "step": 50},
-            {"id": "auto_refresh", "kind": "checkbox", "label": "Auto refresh", "value": False},
-            {"id": "refresh_seconds", "kind": "number", "label": "Interval (s)", "min_value": 5, "value": 60, "step": 5},
-            {"id": "refresh_now", "kind": "button", "label": "Refresh now", "icon": ":material/refresh:"},
-        ],
-        key_prefix=f"d1_preview_{source['id']}",
-    )
-    if controls["refresh_now"]:
-        clear_data_cache(source["id"])
-    where_clause = st.text_input("WHERE condition", placeholder="e.g. name = 'Dev' and created_at > '2024-01-01'")
-
-    sql = build_table_sql(selected_table, int(controls["limit"]), where_clause.strip())
-    st.code(sql, language="sql")
-    render_d1_table_preview(source, sql, bool(controls["auto_refresh"]), int(controls["refresh_seconds"]))
-
-
-def render_d1_table_preview(source: dict[str, Any], sql: str, auto_refresh: bool, refresh_seconds: int) -> None:
-    @st.fragment(run_every=f"{refresh_seconds}s")
-    def _render() -> None:
-        _render_sql_preview_body(source, sql, refresh_seconds, "d1_table_preview")
-
-    if auto_refresh:
-        _render()
-    else:
-        _render_sql_preview_body(source, sql, refresh_seconds, "d1_table_preview")
-
-
-def _render_sql_preview_body(source: dict[str, Any], sql: str, refresh_seconds: int, key_prefix: str) -> None:
-    try:
-        with st.spinner("Loading table rows..."):
-            df, cached_at, from_cache = cached_sql(source, sql, refresh_seconds)
-        render_cache_status(cached_at, from_cache)
-        render_dataframe(df, key_prefix)
-    except Exception as exc:
-        st.error(str(exc))
+    st.markdown("<div class='source-browser-grid'>", unsafe_allow_html=True)
+    columns = st.columns(3, gap="medium")
+    for index, table in enumerate(tables):
+        node = table_node(source, table)
+        schema = node.metadata.get("schema") or []
+        with columns[index % 3]:
+            label = f"{node.label}\n\n{len(schema)} columns"
+            if st.button(
+                label,
+                key=f"sources_grid_table_{source['id']}_{node.key}",
+                icon=node.icon,
+                width="stretch",
+            ):
+                select_node(node)
+                st.session_state[f"d1_tables_{source['id']}"] = [str(item.get("name")) for item in tables if item.get("name")]
+                st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def render_view_index(views: list[dict[str, Any]]) -> None:
@@ -305,15 +346,19 @@ def render_query_tool_page() -> None:
         return
 
     source_ids = [source["id"] for source in sources]
+    query_source_ids = [CROSS_SOURCE_ID, *source_ids]
     selected_id = st.session_state.get("selected_source_id")
-    index = source_ids.index(selected_id) if selected_id in source_ids else 0
-    source_id = st.selectbox("Data source", source_ids, index=index, format_func=source_name)
-    st.session_state["selected_source_id"] = source_id
+    selected_query_source_id = selected_id if selected_id in source_ids else CROSS_SOURCE_ID
+    if st.session_state.get("query_tool_source_id") not in query_source_ids:
+        st.session_state["query_tool_source_id"] = selected_query_source_id
+    source_id = st.selectbox("Data source", query_source_ids, format_func=_query_source_name, key="query_tool_source_id")
+    if source_id != CROSS_SOURCE_ID:
+        st.session_state["selected_source_id"] = source_id
 
     persisted_state = read_query_state()
     sql_key = f"query_tool_sql_{source_id}"
     if sql_key not in st.session_state:
-        st.session_state[sql_key] = persisted_state.get("drafts", {}).get(source_id) or default_sql_for_source(source_id)
+        st.session_state[sql_key] = persisted_state.get("drafts", {}).get(source_id) or _default_query_tool_sql(source_id, sources)
     sql = st.text_area(
         "SQL",
         height=180,
@@ -337,10 +382,16 @@ def render_query_tool_page() -> None:
     auto_refresh = bool(actions["auto_refresh"])
     refresh_seconds = int(actions["refresh_seconds"])
 
-    if save_result:
+    if source_id == CROSS_SOURCE_ID:
+        _render_cross_source_catalog(sources)
+
+    if save_result and source_id == CROSS_SOURCE_ID:
+        st.session_state["show_save_view"] = False
+        st.warning("Cross-source results can be run here, but saved views still need a single source.")
+    elif save_result:
         st.session_state["show_save_view"] = True
 
-    if st.session_state.get("show_save_view"):
+    if st.session_state.get("show_save_view") and source_id != CROSS_SOURCE_ID:
         with st.form("save_view_form"):
             view_name = st.text_input("View name", placeholder="Filtered futures")
             submitted = st.form_submit_button("Save view", icon=":material/save:")
@@ -390,6 +441,10 @@ def _render_auto_query_result(source_id: str, sql: str, refresh_seconds: int) ->
 
 
 def _render_query_result(source_id: str, sql: str, refresh_seconds: int) -> None:
+    if source_id == CROSS_SOURCE_ID:
+        _render_cross_source_query_result(sql, refresh_seconds)
+        return
+
     source = get_source(source_id)
     if not source:
         st.error("Source not found.")
@@ -398,6 +453,18 @@ def _render_query_result(source_id: str, sql: str, refresh_seconds: int) -> None
         with st.spinner("Loading market data..."):
             df, cached_at, from_cache = cached_sql(source, sql, refresh_seconds)
         _save_query_result(source_id, sql, df, cached_at)
+        render_cache_status(cached_at, from_cache)
+        render_dataframe(df, "query_result")
+    except Exception as exc:
+        st.error(str(exc))
+
+
+def _render_cross_source_query_result(sql: str, refresh_seconds: int) -> None:
+    sources = list_sources()
+    try:
+        with st.spinner("Loading market data..."):
+            df, cached_at, from_cache = cached_cross_source_sql(sources, sql, refresh_seconds)
+        _save_query_result(CROSS_SOURCE_ID, sql, df, cached_at)
         render_cache_status(cached_at, from_cache)
         render_dataframe(df, "query_result")
     except Exception as exc:
@@ -433,8 +500,58 @@ def _save_query_result(source_id: str, sql: str, df: pl.DataFrame, cached_at: fl
     write_query_state(state)
 
 
-def render_source_preview(
+def _query_source_name(source_id: str) -> str:
+    if source_id == CROSS_SOURCE_ID:
+        return "All sources"
+    return source_name(source_id)
+
+
+def _default_query_tool_sql(source_id: str, sources: list[dict[str, Any]]) -> str:
+    if source_id != CROSS_SOURCE_ID:
+        return default_sql_for_source(source_id)
+    aliases = [source_table_alias(source) for source in sources if source["type"] == "cloudflare_r2"]
+    first_alias = aliases[0] if aliases else source_table_alias(sources[0])
+    return f"SELECT * FROM {first_alias} LIMIT 200"
+
+
+def _render_cross_source_catalog(sources: list[dict[str, Any]]) -> None:
+    rows = []
+    for source in sources:
+        source_alias = source_table_alias(source)
+        if source["type"] == "cloudflare_r2":
+            rows.append({"source": source["name"], "table": source_alias, "notes": "R2 file pattern"})
+        elif source["type"] == "cloudflare_d1":
+            rows.append({"source": source["name"], "table": f"{source_alias}__<d1_table>", "notes": "D1 table alias pattern"})
+
+    if rows:
+        with st.expander("Cross-source table names", expanded=False):
+            st.dataframe(pl.DataFrame(rows), width="stretch", hide_index=True, key="cross_source_catalog")
+
+
+def _selected_table_for_data_view(source: dict[str, Any]) -> str | None:
+    if source["type"] == "cloudflare_r2":
+        return None
+    if source["type"] != "cloudflare_d1":
+        return None
+
+    selected_key = f"d1_selected_table_{source['id']}"
+    selected_table = st.session_state.get(selected_key)
+    catalog = refresh_stale_catalogs()
+    tables = source_tables_from_catalog(source, catalog)
+    table_names = [str(table.get("name")) for table in tables if table.get("name")]
+    if selected_table in table_names:
+        st.session_state[f"d1_tables_{source['id']}"] = table_names
+        return str(selected_table)
+    if table_names:
+        st.session_state[selected_key] = table_names[0]
+        st.session_state[f"d1_tables_{source['id']}"] = table_names
+        return table_names[0]
+    return None
+
+
+def render_table_preview(
     source: dict[str, Any],
+    table_name: str | None,
     limit: int,
     auto_refresh: bool,
     refresh_seconds: int,
@@ -446,18 +563,31 @@ def render_source_preview(
 
     @st.fragment(run_every=f"{refresh_seconds}s")
     def _render() -> None:
-        _render_source_preview_body(source, limit, where_clause, refresh_seconds)
+        _render_table_preview_body(source, table_name, limit, where_clause, refresh_seconds)
 
     if auto_refresh:
         _render()
     else:
-        _render_source_preview_body(source, limit, where_clause, refresh_seconds)
+        _render_table_preview_body(source, table_name, limit, where_clause, refresh_seconds)
 
 
-def _render_source_preview_body(source: dict[str, Any], limit: int, where_clause: str, refresh_seconds: int) -> None:
+def _render_table_preview_body(
+    source: dict[str, Any],
+    table_name: str | None,
+    limit: int,
+    where_clause: str,
+    refresh_seconds: int,
+) -> None:
     try:
         with st.spinner("Loading market data..."):
-            df, cached_at, from_cache = cached_preview(source, limit, where_clause, refresh_seconds)
+            if source["type"] == "cloudflare_d1":
+                if not table_name:
+                    st.caption("Select a table to preview rows.")
+                    return
+                sql = build_table_sql(table_name, limit, where_clause)
+                df, cached_at, from_cache = cached_sql(source, sql, refresh_seconds)
+            else:
+                df, cached_at, from_cache = cached_preview(source, limit, where_clause, refresh_seconds)
         render_cache_status(cached_at, from_cache)
         render_dataframe(df, "source_preview")
     except Exception as exc:

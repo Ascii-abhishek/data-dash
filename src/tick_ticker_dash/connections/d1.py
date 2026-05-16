@@ -103,6 +103,24 @@ def list_tables(source: dict[str, Any], credentials: dict[str, Any]) -> list[str
     return [str(name) for name in df.get_column("name").to_list() if name]
 
 
+def list_table_schema(source: dict[str, Any], credentials: dict[str, Any], table_name: str) -> list[dict[str, Any]]:
+    df = execute_sql(source, credentials, f"PRAGMA table_info({_quote_sql_string(table_name)})")
+    if df.is_empty():
+        return []
+    rows = df.to_dicts()
+    return [
+        {
+            "name": row.get("name"),
+            "type": row.get("type"),
+            "not_null": bool(row.get("notnull")),
+            "primary_key": bool(row.get("pk")),
+            "default": row.get("dflt_value"),
+        }
+        for row in rows
+        if row.get("name")
+    ]
+
+
 def preview(
     source: dict[str, Any],
     credentials: dict[str, Any],
@@ -115,3 +133,7 @@ def preview(
         base_query = f"SELECT * FROM ({base_query}) WHERE {where_clause}"
     limited_query = base_query if "limit" in base_query.lower() else f"{base_query} LIMIT {limit}"
     return execute_sql(source, credentials, limited_query)
+
+
+def _quote_sql_string(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"

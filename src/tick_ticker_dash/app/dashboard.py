@@ -6,6 +6,7 @@ import streamlit as st
 
 from tick_ticker_dash.app.common import cached_sql, clear_data_cache, render_cache_status, render_empty_state
 from tick_ticker_dash.app.controls import render_control_panel
+from tick_ticker_dash.app.dashboard_grid import render_dashboard_grid
 from tick_ticker_dash.app.dialogs import render_create_dashboard_dialog, render_dashboard_dialog, render_rename_dashboard_dialog
 from tick_ticker_dash.app.graphs import render_result
 from tick_ticker_dash.app.styles import action_link, page_title, route_link
@@ -77,31 +78,39 @@ def render_dashboard_page() -> None:
         render_empty_state("This dashboard has no cards yet. Add a card from the top.")
         return
 
-    for row_start in range(0, len(dashboard_cards), 2):
-        columns = st.columns(2)
-        for column, card in zip(columns, dashboard_cards[row_start : row_start + 2], strict=False):
-            with column.container(border=True):
-                header = st.columns([0.86, 0.07, 0.07], vertical_alignment="center")
-                header[0].markdown(f"#### {card['name']}")
-                if header[1].button(
-                    "",
-                    key=f"edit_card_{card['id']}",
-                    icon=":material/edit:",
-                    help=f"Edit {card['name']}",
-                    width="content",
-                ):
-                    render_dashboard_dialog(selected_name, card["id"])
-                if header[2].button(
-                    "",
-                    key=f"delete_card_{card['id']}",
-                    icon=":material/delete:",
-                    help=f"Delete {card['name']}",
-                    width="content",
-                ):
-                    delete_dashboard_card(card["id"])
-                    clear_data_cache()
-                    st.rerun()
-                render_dashboard_card(card, auto_refresh, refresh_seconds)
+    render_dashboard_grid(
+        dashboard_cards,
+        lambda card: _render_dashboard_card_container(card, selected_name, auto_refresh, refresh_seconds),
+    )
+
+
+def _render_dashboard_card_container(
+    card: dict[str, Any],
+    dashboard_name: str,
+    auto_refresh: bool,
+    refresh_seconds: int,
+) -> None:
+    header = st.columns([0.86, 0.07, 0.07], vertical_alignment="center")
+    header[0].markdown(f"#### {card['name']}")
+    if header[1].button(
+        "",
+        key=f"edit_card_{card['id']}",
+        icon=":material/edit:",
+        help=f"Edit {card['name']}",
+        width="content",
+    ):
+        render_dashboard_dialog(dashboard_name, card["id"])
+    if header[2].button(
+        "",
+        key=f"delete_card_{card['id']}",
+        icon=":material/delete:",
+        help=f"Delete {card['name']}",
+        width="content",
+    ):
+        delete_dashboard_card(card["id"])
+        clear_data_cache()
+        st.rerun()
+    render_dashboard_card(card, auto_refresh, refresh_seconds)
 
 
 def render_dashboard_index(cards: list[dict[str, Any]], dashboards: list[dict[str, Any]]) -> None:
@@ -165,6 +174,6 @@ def _render_dashboard_card_body(card: dict[str, Any], refresh_seconds: int | Non
         with st.spinner("Loading market data..."):
             df, cached_at, from_cache = cached_sql(source, card["sql"], refresh_seconds)
         render_cache_status(cached_at, from_cache)
-        render_result(df, card.get("type", "table"), f"card_{card['id']}", card.get("chart_config", {}))
+        render_result(df, card.get("type", "table"), f"card_{card['id']}", card.get("chart_config", {}), context="dashboard")
     except Exception as exc:
         st.error(str(exc))

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 import streamlit as st
 
@@ -10,6 +10,7 @@ from tick_ticker_dash.storage.local_store import (
     delete_dashboard,
     delete_saved_view,
     get_saved_view,
+    get_source,
     list_dashboards,
     toggle_favorite,
 )
@@ -58,6 +59,24 @@ def apply_route_from_url() -> None:
         st.session_state["page"] = "Favorites"
         st.session_state["selected_dashboard_id"] = None
         st.session_state["selected_dashboard_name"] = None
+    elif route == "sources":
+        st.session_state["selected_dashboard_id"] = None
+        st.session_state["selected_dashboard_name"] = None
+        st.session_state["selected_view_id"] = None
+        if len(parts) > 1:
+            source_id = unquote(parts[1])
+            st.session_state["selected_source_id"] = source_id
+            st.session_state["sources_browser_source_id"] = source_id
+            if len(parts) > 2:
+                table_name = unquote(parts[2])
+                st.session_state[f"d1_selected_table_{source_id}"] = table_name
+                st.session_state["page"] = "Views"
+            else:
+                st.session_state["page"] = "Sources"
+        else:
+            st.session_state["page"] = "Sources"
+            st.session_state["selected_source_id"] = None
+            st.session_state["sources_browser_source_id"] = None
     elif route == "source" and len(parts) > 1:
         st.session_state["page"] = "Views"
         st.session_state["selected_dashboard_id"] = None
@@ -68,28 +87,66 @@ def apply_route_from_url() -> None:
 
 def sync_route_to_url() -> None:
     route = _current_route()
-    params = dict(st.query_params)
     next_route = route.strip("/") or "dashboard"
-    if params.get("route") == next_route:
+    current_path = _current_url_path()
+    if current_path == next_route and st.query_params.get("route") is None:
         return
-    params["route"] = next_route
-    st.query_params.clear()
-    st.query_params.update(params)
+    _replace_browser_path(f"/{next_route}")
 
 
 def _current_route() -> str:
     page = st.session_state.get("page", "Dashboard")
     if page == "Views" and st.session_state.get("selected_source_id"):
-        return f"/source/{st.session_state['selected_source_id']}"
+        source_id = quote(str(st.session_state["selected_source_id"]), safe="")
+        source = get_source(str(st.session_state["selected_source_id"]))
+        table_name = (
+            st.session_state.get(f"d1_selected_table_{st.session_state['selected_source_id']}")
+            if source and source.get("type") == "cloudflare_d1"
+            else None
+        )
+        if table_name:
+            return f"/sources/{source_id}/{quote(str(table_name), safe='')}"
+        return f"/sources/{source_id}"
     if page == "Views":
         return "/views"
     if page == "Query Tool":
         return "/query-tool"
     if page == "Favorites":
         return "/favorites"
+    if page == "Sources":
+        source_id = st.session_state.get("sources_browser_source_id")
+        if source_id:
+            return f"/sources/{quote(str(source_id), safe='')}"
+        return "/sources"
     if page == "Dashboard" and st.session_state.get("selected_dashboard_id"):
         return f"/dashboard/{st.session_state['selected_dashboard_id']}"
     return "/dashboard"
+
+
+def _current_url_path() -> str:
+    current_url = st.context.url or ""
+    if isinstance(current_url, bytes | bytearray):
+        current_url = current_url.decode()
+    parsed = urlparse(str(current_url))
+    return parsed.path.strip("/")
+
+
+def _replace_browser_path(path: str) -> None:
+    st.iframe(
+        f"""
+        <script>
+        const targetPath = {path!r};
+        const params = new URLSearchParams(window.parent.location.search);
+        params.delete("route");
+        const query = params.toString();
+        const nextUrl = targetPath + (query ? "?" + query : "");
+        if (window.parent.location.pathname + window.parent.location.search !== nextUrl) {{
+            window.parent.history.replaceState(null, "", nextUrl);
+        }}
+        </script>
+        """,
+        height=1,
+    )
 
 
 def handle_action_params() -> None:

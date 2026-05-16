@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from typing import Any
@@ -7,7 +8,7 @@ from typing import Any
 import polars as pl
 import streamlit as st
 
-from tick_ticker_dash.connections.registry import execute_source_sql, preview_source
+from tick_ticker_dash.connections.registry import execute_cross_source_sql, execute_source_sql, preview_source
 from tick_ticker_dash.storage.local_store import get_source
 
 
@@ -151,6 +152,23 @@ def cached_sql(source: dict[str, Any], sql: str, ttl_seconds: int | None) -> tup
     return put_in_cache(key, execute_source_sql(source, sql))
 
 
+def cached_cross_source_sql(sources: list[dict[str, Any]], sql: str, ttl_seconds: int | None) -> tuple[pl.DataFrame, float, bool]:
+    source_versions = [
+        {
+            "id": source["id"],
+            "type": source.get("type"),
+            "updated_at": source.get("updated_at"),
+        }
+        for source in sources
+    ]
+    digest = hashlib.sha256(json.dumps(source_versions, sort_keys=True, default=str).encode()).hexdigest()
+    key = json.dumps({"kind": "cross_sql", "sources": digest, "parts": [sql]}, sort_keys=True)
+    cached, cached_at, from_cache = get_from_cache(key, ttl_seconds)
+    if cached is not None and cached_at is not None:
+        return cached, cached_at, from_cache
+    return put_in_cache(key, execute_cross_source_sql(sources, sql))
+
+
 def clear_data_cache(source_id: str | None = None) -> None:
     if source_id is None:
         st.session_state["data_cache"] = {}
@@ -166,8 +184,16 @@ def render_cache_status(cached_at: float, from_cache: bool) -> None:
     st.caption(f"{label} {age}s ago.")
 
 
-def render_dataframe(df: pl.DataFrame, key_prefix: str) -> None:
+def render_dataframe(df: pl.DataFrame, key_prefix: str, height: int | None = None) -> None:
     if df.is_empty():
         st.caption("No rows returned.")
         return
-    st.dataframe(df, width="stretch", hide_index=True, key=key_prefix)
+    st.dataframe(df, width="stretch", height=height or dataframe_height(df), hide_index=True, key=key_prefix)
+
+
+def dataframe_height(df: pl.DataFrame) -> int:
+    if df.height <= 5:
+        return 120 + (df.height * 36)
+    if df.height <= 12:
+        return 180 + (df.height * 32)
+    return 720

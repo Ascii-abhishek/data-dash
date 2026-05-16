@@ -20,6 +20,9 @@ def inject_css() -> None:
         .block-container {
             padding-top: 3.75rem;
         }
+        iframe[height="1"] {
+            display: none;
+        }
         [data-testid="stSidebar"] {
             min-width: 300px;
             max-width: 360px;
@@ -91,6 +94,33 @@ def inject_css() -> None:
             border-radius: 8px;
             padding: 0.85rem 1rem;
         }
+        .dashboard-card-grid + div[data-testid="stHorizontalBlock"],
+        .dashboard-card-grid + div[data-testid="stHorizontalBlock"] ~ div[data-testid="stHorizontalBlock"] {
+            align-items: stretch;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .dashboard-card-grid + div[data-testid="stHorizontalBlock"] div[data-testid="stVerticalBlockBorderWrapper"],
+        .dashboard-card-grid + div[data-testid="stHorizontalBlock"] ~ div[data-testid="stHorizontalBlock"] div[data-testid="stVerticalBlockBorderWrapper"] {
+            background: rgba(255, 255, 255, 0.015);
+            border-radius: 8px;
+            min-height: 31rem;
+            overflow: hidden;
+        }
+        .dashboard-card-grid + div[data-testid="stHorizontalBlock"] iframe,
+        .dashboard-card-grid + div[data-testid="stHorizontalBlock"] ~ div[data-testid="stHorizontalBlock"] iframe {
+            max-width: 100%;
+        }
+        @media (max-width: 1100px) {
+            .dashboard-card-grid + div[data-testid="stHorizontalBlock"],
+            .dashboard-card-grid + div[data-testid="stHorizontalBlock"] ~ div[data-testid="stHorizontalBlock"] {
+                flex-direction: column;
+            }
+            .dashboard-card-grid + div[data-testid="stHorizontalBlock"] > div,
+            .dashboard-card-grid + div[data-testid="stHorizontalBlock"] ~ div[data-testid="stHorizontalBlock"] > div {
+                width: 100% !important;
+            }
+        }
         .muted {
             color: rgba(128, 128, 128, 0.95);
             font-size: 0.9rem;
@@ -141,6 +171,78 @@ def inject_css() -> None:
             justify-content: flex-start;
             text-align: left;
             width: 100%;
+        }
+        .source-browser-grid + div[data-testid="stHorizontalBlock"] div.stButton > button,
+        .source-browser-grid + div[data-testid="stHorizontalBlock"] ~ div[data-testid="stHorizontalBlock"] div.stButton > button {
+            align-items: center;
+            min-height: 5.4rem;
+            padding: 1rem 1.15rem;
+        }
+        .source-browser-grid + div[data-testid="stHorizontalBlock"] div.stButton > button p,
+        .source-browser-grid + div[data-testid="stHorizontalBlock"] ~ div[data-testid="stHorizontalBlock"] div.stButton > button p {
+            line-height: 1.35;
+            white-space: pre-line;
+        }
+        .breadcrumb-separator {
+            align-items: center;
+            color: rgba(128, 128, 128, 0.95);
+            display: flex;
+            font-size: 1.15rem;
+            font-weight: 750;
+            height: 2.4rem;
+            justify-content: center;
+        }
+        .breadcrumb-current {
+            align-items: center;
+            display: flex;
+            font-weight: 750;
+            min-height: 2.4rem;
+            overflow-wrap: anywhere;
+        }
+        [data-testid="stSidebar"] .source-list div.stButton > button:has(.material-symbols-rounded) {
+            min-height: 2.3rem;
+        }
+        .chat-panel-title {
+            align-items: center;
+            color: var(--ttd-blue);
+            display: flex;
+            font-size: 1.35rem;
+            font-weight: 800;
+            margin: 0 0 0.8rem;
+        }
+        .chat-panel-title:before {
+            content: '';
+            background: var(--ttd-blue);
+            border-radius: 999px;
+            display: inline-block;
+            height: 1.1rem;
+            margin-right: 0.45rem;
+            width: 0.25rem;
+        }
+        .chat-panel-title + div[data-testid="stHorizontalBlock"] {
+            margin-bottom: 0.35rem;
+        }
+        .chat-rail-start + div[data-testid="stVerticalBlock"] {
+            background: linear-gradient(180deg, rgba(25, 118, 210, 0.10), rgba(25, 118, 210, 0.03));
+            border-left: 1px solid var(--ttd-border);
+            min-height: 100vh;
+            margin-bottom: -6rem;
+            margin-top: -3.75rem;
+            padding: 3.75rem 1rem 1rem;
+        }
+        .chat-rail-start + div[data-testid="stVerticalBlock"] > div:has(form) {
+            margin-top: auto;
+        }
+        .chat-rail-start + div[data-testid="stVerticalBlock"] div[data-testid="stVerticalBlock"]:has(div[data-testid="stChatMessage"]) {
+            background: rgba(0, 0, 0, 0.10);
+            border: 1px solid var(--ttd-border);
+            border-radius: 8px;
+        }
+        textarea[aria-label="Ask about your data"] {
+            resize: none;
+        }
+        div[data-testid="stChatMessage"] {
+            border-radius: 8px;
         }
         .danger-button button,
         .danger-button div.stButton > button,

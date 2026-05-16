@@ -10,8 +10,9 @@ class AppSettings(BaseSettings):
     connections_dir: Path = Path("connections")
     credentials_dir: Path = Path("credentials")
     ui_dir: Path = Path("ui")
+    memory_dir: Path = Path("memory")
 
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="TTD_")
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="TTD_", extra="ignore")
 
     @model_validator(mode="after")
     def resolve_runtime_paths(self) -> "AppSettings":
@@ -20,6 +21,7 @@ class AppSettings(BaseSettings):
         object.__setattr__(self, "connections_dir", _resolve_child_path(self.connections_dir, project_dir))
         object.__setattr__(self, "credentials_dir", _resolve_child_path(self.credentials_dir, project_dir))
         object.__setattr__(self, "ui_dir", _resolve_child_path(self.ui_dir, project_dir))
+        object.__setattr__(self, "memory_dir", _resolve_child_path(self.memory_dir, project_dir))
         return self
 
 
