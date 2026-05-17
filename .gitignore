@@ -17,3 +17,4 @@ src/*.egg-info/
 /connections/
 /ui/
 /memory/
+/logs/

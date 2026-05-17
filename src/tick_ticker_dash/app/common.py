@@ -127,6 +127,8 @@ def get_from_cache(key: str, ttl_seconds: int | None) -> tuple[pl.DataFrame | No
     if not item:
         return None, None, False, None
     cached_at = float(item["cached_at"])
+    if st.session_state.get("layout_only_rerun"):
+        return item["df"], cached_at, True, float(item.get("duration_seconds") or 0)
     if ttl_seconds is not None and time.time() - cached_at > ttl_seconds:
         st.session_state["data_cache"].pop(key, None)
         return None, None, False, None

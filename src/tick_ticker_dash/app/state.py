@@ -24,6 +24,9 @@ def apply_route_from_url() -> None:
         current_url = str(current_url)
     parsed = urlparse(current_url)
     params = parse_qs(parsed.query)
+    chat_param = st.query_params.get("chat") or params.get("chat", [None])[0]
+    if str(chat_param or "").lower() == "open":
+        st.session_state["chat_open"] = True
     route_param = st.query_params.get("route") or params.get("route", [None])[0]
     path = (route_param or parsed.path.strip("/")).strip("/")
     if st.session_state.get("applied_route") == path:
@@ -50,7 +53,7 @@ def apply_route_from_url() -> None:
         st.session_state["selected_dashboard_id"] = None
         st.session_state["selected_dashboard_name"] = None
         st.session_state["selected_source_id"] = None
-        st.session_state["selected_view_id"] = None
+        st.session_state["selected_view_id"] = unquote(parts[1]) if len(parts) > 1 else None
     elif route in {"query", "query-tool"}:
         st.session_state["page"] = "Query Tool"
         st.session_state["selected_dashboard_id"] = None
@@ -89,13 +92,17 @@ def sync_route_to_url() -> None:
     route = _current_route()
     next_route = route.strip("/") or "dashboard"
     current_path = _current_url_path()
-    if current_path == next_route and st.query_params.get("route") is None:
+    chat_in_url = st.query_params.get("chat") == "open"
+    chat_matches = bool(st.session_state.get("chat_open")) == chat_in_url
+    if current_path == next_route and st.query_params.get("route") is None and chat_matches:
         return
     _replace_browser_path(f"/{next_route}")
 
 
 def _current_route() -> str:
     page = st.session_state.get("page", "Dashboard")
+    if page == "Views" and st.session_state.get("selected_view_id"):
+        return f"/views/{quote(str(st.session_state['selected_view_id']), safe='')}"
     if page == "Views" and st.session_state.get("selected_source_id"):
         source_id = quote(str(st.session_state["selected_source_id"]), safe="")
         source = get_source(str(st.session_state["selected_source_id"]))
@@ -132,12 +139,19 @@ def _current_url_path() -> str:
 
 
 def _replace_browser_path(path: str) -> None:
+    chat_open = bool(st.session_state.get("chat_open"))
     st.iframe(
         f"""
         <script>
         const targetPath = {path!r};
+        const chatOpen = {str(chat_open).lower()};
         const params = new URLSearchParams(window.parent.location.search);
         params.delete("route");
+        if (chatOpen) {{
+            params.set("chat", "open");
+        }} else {{
+            params.delete("chat");
+        }}
         const query = params.toString();
         const nextUrl = targetPath + (query ? "?" + query : "");
         if (window.parent.location.pathname + window.parent.location.search !== nextUrl) {{
@@ -188,8 +202,8 @@ def handle_action_params() -> None:
         clear_data_cache()
 
     st.query_params.clear()
-    st.query_params["route"] = _current_route().strip("/") or "dashboard"
-    st.rerun()
+    if st.session_state.get("chat_open"):
+        st.query_params["chat"] = "open"
 
 
 def open_favorite(favorite: dict[str, Any]) -> None:

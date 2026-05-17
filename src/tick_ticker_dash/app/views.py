@@ -9,7 +9,6 @@ from tick_ticker_dash.app.common import (
     cached_preview,
     cached_sql,
     build_table_sql,
-    cap_select_sql,
     clear_data_cache,
     default_sql_for_source,
     render_cache_status,
@@ -22,6 +21,7 @@ from tick_ticker_dash.app.common import (
     source_type_icon_name,
 )
 from tick_ticker_dash.app.controls import render_control_panel
+from tick_ticker_dash.app.query_execution import DEFAULT_QUERY_ROW_LIMIT, persist_query_result, prepare_read_only_sql
 from tick_ticker_dash.app.source_navigation import SourceNode, breadcrumbs_for_node, root_node, select_node, source_node, table_node
 from tick_ticker_dash.app.source_catalog import refresh_stale_catalogs, source_tables_from_catalog
 from tick_ticker_dash.app.state import open_favorite
@@ -40,7 +40,7 @@ from tick_ticker_dash.storage.local_store import (
 )
 
 
-QUERY_TOOL_ROW_LIMIT = 5000
+QUERY_TOOL_ROW_LIMIT = DEFAULT_QUERY_ROW_LIMIT
 
 
 def render_views_page() -> None:
@@ -295,14 +295,17 @@ def render_saved_view(view_id: str) -> None:
     if auto_refresh:
         _render()
     else:
-        _render_saved_view_body(source, view, refresh_seconds)
+        _render_saved_view_body(source, view, None)
 
 
-def _render_saved_view_body(source: dict[str, Any], view: dict[str, Any], refresh_seconds: int) -> None:
+def _render_saved_view_body(source: dict[str, Any], view: dict[str, Any], ttl_seconds: int | None) -> None:
     try:
+        safe_sql = prepare_read_only_sql(view["sql"], QUERY_TOOL_ROW_LIMIT)
         with st.spinner("Loading market data..."):
-            df, cached_at, from_cache, duration_seconds = cached_sql(source, view["sql"], refresh_seconds)
+            df, cached_at, from_cache, duration_seconds = cached_sql(source, safe_sql.execution_sql, ttl_seconds)
         render_cache_status(cached_at, from_cache, duration_seconds)
+        if safe_sql.was_capped:
+            st.caption(f"Result capped at {QUERY_TOOL_ROW_LIMIT:,} rows because the saved query did not include LIMIT.")
         render_dataframe(df, "saved_view_result")
     except Exception as exc:
         st.error(str(exc))
@@ -391,15 +394,20 @@ def render_query_tool_page() -> None:
             if not view_name or not sql:
                 st.error("View name and SQL are required.")
             else:
-                view = save_saved_view(
-                    {
-                        "name": view_name,
-                        "source_id": source_id,
-                        "sql": sql,
-                        "auto_refresh": False,
-                        "refresh_seconds": 60,
-                    }
-                )
+                try:
+                    safe_sql = prepare_read_only_sql(sql, QUERY_TOOL_ROW_LIMIT)
+                    view = save_saved_view(
+                        {
+                            "name": view_name,
+                            "source_id": source_id,
+                            "sql": safe_sql.original_sql,
+                            "auto_refresh": False,
+                            "refresh_seconds": 60,
+                        }
+                    )
+                except Exception as exc:
+                    st.error(str(exc))
+                    return
                 st.session_state["selected_view_id"] = view["id"]
                 st.session_state["selected_source_id"] = None
                 st.session_state["page"] = "Views"
@@ -438,12 +446,12 @@ def _render_query_result(source_id: str, sql: str, refresh_seconds: int) -> None
         st.error("Source not found.")
         return
     try:
-        execution_sql, was_capped = cap_select_sql(sql, QUERY_TOOL_ROW_LIMIT)
+        safe_sql = prepare_read_only_sql(sql, QUERY_TOOL_ROW_LIMIT)
         with st.spinner("Loading market data..."):
-            df, cached_at, from_cache, duration_seconds = cached_sql(source, execution_sql, refresh_seconds)
-        _save_query_result(source_id, sql, df, cached_at)
+            df, cached_at, from_cache, duration_seconds = cached_sql(source, safe_sql.execution_sql, refresh_seconds)
+        persist_query_result(source_id, sql, df, cached_at)
         render_cache_status(cached_at, from_cache, duration_seconds)
-        if was_capped:
+        if safe_sql.was_capped:
             st.caption(f"Result capped at {QUERY_TOOL_ROW_LIMIT:,} rows because the query did not include LIMIT.")
         render_dataframe(df, "query_result")
     except Exception as exc:
@@ -464,19 +472,6 @@ def _render_persisted_query_result(source_id: str, sql: str) -> None:
     render_dataframe(pl.DataFrame(rows), "query_result")
     if result.get("truncated"):
         st.caption("Persisted result preview is limited to the first 5000 rows.")
-
-
-def _save_query_result(source_id: str, sql: str, df: pl.DataFrame, cached_at: float) -> None:
-    state = read_query_state()
-    rows = df.head(5000).to_dicts()
-    state["last_result"] = {
-        "source_id": source_id,
-        "sql": sql,
-        "cached_at": cached_at,
-        "rows": rows,
-        "truncated": df.height > len(rows),
-    }
-    write_query_state(state)
 
 
 def _selected_table_for_data_view(source: dict[str, Any]) -> str | None:

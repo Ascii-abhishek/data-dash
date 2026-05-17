@@ -474,12 +474,18 @@ def page_title(title: str, icon_name: str) -> None:
 
 
 def action_link(label: str, icon_name: str, action: str, item_type: str, item_id: str, class_name: str) -> str:
-    href = "?" + urlencode({"action": action, "item_type": item_type, "item_id": item_id})
+    params = {"action": action, "item_type": item_type, "item_id": item_id}
+    if st.session_state.get("chat_open"):
+        params["chat"] = "open"
+    href = "?" + urlencode(params)
     return render_link(label, icon_name, href, class_name)
 
 
 def route_link(label: str, icon_name: str, route: str, class_name: str) -> str:
-    href = "?" + urlencode({"route": route.strip("/")})
+    params = {"route": route.strip("/")}
+    if st.session_state.get("chat_open"):
+        params["chat"] = "open"
+    href = "?" + urlencode(params)
     return render_link(label, icon_name, href, class_name)
 
 

@@ -47,6 +47,35 @@ llama-3.3-70b-versatile
 
 The UI renders prior turns with `st.chat_message`. Input uses a contained bottom form instead of `st.chat_input` so the right pane does not overlay the main app view. Session persistence is file-backed rather than only `st.session_state`, so refreshes do not wipe chat history. `st.session_state` is still used for UI-only state such as opening and closing the panel.
 
+## Query Execution from Chat
+
+Chat can execute source queries through a guarded action pipeline. The LLM does not execute free-form SQL directly. It first returns a structured JSON action such as `run_query`, `answer`, or `save_last_query`. The app then validates the action and runs it through `tick_ticker_dash.app.query_execution`.
+
+The execution guard is intentionally strict:
+
+- only a single statement is allowed;
+- only `SELECT` and `WITH` statements are allowed;
+- comments and multiple statements are rejected;
+- destructive or metadata-changing keywords such as `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `CREATE`, `PRAGMA`, and `VACUUM` are blocked in code;
+- exploratory queries without `LIMIT` are capped before execution;
+- query results are persisted into the same `ui/query_state.json` last-result shape used by the Query Tool.
+
+When a chat query succeeds, the app stores the source, SQL, row count, duration, result preview, and optional saved view metadata in `memory/session.json`. Follow-up messages such as "save that as a view" can use the latest chat query metadata without asking the model to reconstruct the SQL.
+
+## Chat Logs
+
+Each chat session has a stable session id stored in `memory/session_meta.json`. Runtime diagnostics are appended to `logs/chat/<session_id>.log` using plain one-line records:
+
+```text
+timestamp - LOG_LEVEL - message | {"structured":"details"}
+```
+
+The log records user prompts, LLM request payloads, LLM responses, parsed action JSON, guarded query execution start/completion, execution timestamps, row counts, saved-view actions, stored chat turns, and failures. Secrets such as API keys are not logged.
+
+If a generated query passes safety validation but fails during execution, chat performs one repair attempt. It sends the failed SQL, execution error, and source context back to the LLM, validates the repaired SQL with the same read-only guard, and logs both the failed and repaired attempts. If the repair also fails, the chat turn is stored as a query failure instead of losing the diagnostic context.
+
+When a query action includes `save_view_name`, chat also respects `save_view_mode`. `new` creates a separate saved view, while `update` updates the latest saved view from chat when available. If the model omits the mode, the app infers it from the user's wording so "save in a new view" creates a new view and "update the above view" updates the existing one.
+
 ## Source Context
 
 D1 table names and schemas are cached in `ui/source_catalog.json` and refreshed when stale after 30 minutes. A lightweight Streamlit fragment keeps the catalog warm while the app is open, and the normal sidebar/chat reads also refresh stale entries. The sidebar reads this catalog to show D1 tables under each D1 source. Clicking a table opens the source view and selects that table.

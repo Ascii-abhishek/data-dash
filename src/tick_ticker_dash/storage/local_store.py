@@ -18,6 +18,7 @@ SOURCE_CATALOG_FILE = UI_STATE_DIR / "source_catalog.json"
 PROMPT_FILE = settings.MEMORY_DIR / "prompt.json"
 CONTEXT_FILE = settings.MEMORY_DIR / "context.json"
 SESSION_FILE = settings.MEMORY_DIR / "session.json"
+SESSION_META_FILE = settings.MEMORY_DIR / "session_meta.json"
 DEFAULT_PROMPT_VERSION = 2
 DEFAULT_PROMPT = {
     "version": DEFAULT_PROMPT_VERSION,
@@ -48,6 +49,7 @@ def ensure_storage() -> None:
     settings.CREDENTIALS_DIR.mkdir(parents=True, exist_ok=True)
     UI_STATE_DIR.mkdir(parents=True, exist_ok=True)
     settings.MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+    settings.LOGS_DIR.mkdir(parents=True, exist_ok=True)
     if not SOURCES_FILE.exists():
         write_json(SOURCES_FILE, [])
     if not DASHBOARDS_FILE.exists():
@@ -63,6 +65,8 @@ def ensure_storage() -> None:
         write_json(CONTEXT_FILE, {"notes": [], "source_catalog": {}})
     if not SESSION_FILE.exists():
         write_json(SESSION_FILE, [])
+    if not SESSION_META_FILE.exists():
+        write_json(SESSION_META_FILE, {"session_id": new_chat_session_id(), "created_at": utc_now()})
 
 
 def _ensure_prompt_file() -> None:
@@ -144,6 +148,31 @@ def read_chat_session() -> list[dict[str, Any]]:
 def write_chat_session(session: list[dict[str, Any]]) -> None:
     ensure_storage()
     write_json(SESSION_FILE, session)
+
+
+def new_chat_session_id() -> str:
+    return f"chat-{uuid.uuid4().hex[:12]}"
+
+
+def read_chat_session_meta() -> dict[str, Any]:
+    ensure_storage()
+    meta = read_json(SESSION_META_FILE, {})
+    if not isinstance(meta, dict) or not meta.get("session_id"):
+        meta = {"session_id": new_chat_session_id(), "created_at": utc_now()}
+        write_json(SESSION_META_FILE, meta)
+    return meta
+
+
+def read_chat_session_id() -> str:
+    return str(read_chat_session_meta()["session_id"])
+
+
+def reset_chat_session() -> dict[str, Any]:
+    ensure_storage()
+    meta = {"session_id": new_chat_session_id(), "created_at": utc_now()}
+    write_json(SESSION_FILE, [])
+    write_json(SESSION_META_FILE, meta)
+    return meta
 
 
 def make_id(name: str) -> str:
@@ -388,6 +417,17 @@ def save_saved_view(view: dict[str, Any]) -> dict[str, Any]:
     }
     views = list_saved_views()
     views.append(view)
+    write_json(VIEWS_FILE, views)
+    return view
+
+
+def update_saved_view(view_id: str, updates: dict[str, Any]) -> dict[str, Any]:
+    ensure_storage()
+    views = list_saved_views()
+    view = next((item for item in views if item["id"] == view_id), None)
+    if not view:
+        raise ValueError(f"Saved view not found: {view_id}")
+    view.update({**updates, "updated_at": utc_now()})
     write_json(VIEWS_FILE, views)
     return view
 

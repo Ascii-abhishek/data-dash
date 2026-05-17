@@ -22,21 +22,24 @@ def main() -> None:
     st.session_state.setdefault("selected_dashboard_name", None)
     st.session_state.setdefault("data_cache", {})
     st.session_state.setdefault("chat_open", False)
+    st.session_state.setdefault("layout_only_rerun", False)
     apply_route_from_url()
     handle_action_params()
 
     render_sidebar()
+    sync_route_to_url()
 
     if st.session_state.get("chat_open"):
         main_col, chat_col = st.columns([0.68, 0.32], gap="large")
-        with main_col:
-            _render_current_page()
         with chat_col:
             st.markdown("<div class='chat-rail-start'></div>", unsafe_allow_html=True)
             with st.container():
                 render_chat_panel()
+        with main_col:
+            _render_current_page()
     else:
         _render_current_page()
+    st.session_state["layout_only_rerun"] = False
     sync_route_to_url()
 
 

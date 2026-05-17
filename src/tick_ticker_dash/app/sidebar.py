@@ -33,7 +33,9 @@ def render_sidebar() -> None:
             st.session_state["selected_dashboard_id"] = None
             st.session_state["selected_dashboard_name"] = None
         if st.button("Chat with AI", key="nav_chat", icon=":material/chat:", width="stretch"):
+            st.session_state["layout_only_rerun"] = True
             st.session_state["chat_open"] = True
+            st.query_params["chat"] = "open"
         st.markdown("</div>", unsafe_allow_html=True)
 
         if favorites:
